@@ -1,0 +1,10 @@
+pdf2zh/
+
+dist/
+server/config.json
+server/__pycache__/
+__pycache__/
+*.pyc
+storage/
+server/server.log
+server/server.err.log

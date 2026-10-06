@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Arxiv PDF Translate</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup">
+    <header>
+      <span class="logo"><img class="logo-icon" src="../icons/logo.svg" alt=""><img class="logo-wordmark" src="../icons/arxiv_pdf_translate.svg" alt="Arxiv PDF Translate"></span>
+      <span id="serverStatus" class="badge">检测服务…</span>
+    </header>
+
+    <div id="tabInfo" class="card">
+      <div class="tab-url" id="tabUrl">读取当前标签页…</div>
+    </div>
+
+    <div id="existingSection" class="existing" hidden>
+      <div class="section-title">已翻译过</div>
+      <div id="existingList" class="existing-list"></div>
+    </div>
+
+    <div class="section-title">翻译选项</div>
+    <div class="opts">
+      <div class="row">
+        <label for="sourceLang">源语言</label>
+        <select id="sourceLang"></select>
+      </div>
+      <div class="row">
+        <label for="targetLang">目标语言</label>
+        <select id="targetLang"></select>
+      </div>
+      <div class="row">
+        <label for="outputVariant">输出</label>
+        <select id="outputVariant">
+          <option value="dual">双语 PDF</option>
+          <option value="mono">仅译文 PDF</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="pageMode">翻译范围</label>
+        <select id="pageMode">
+          <option value="all">全部页面</option>
+          <option value="first">第一页</option>
+          <option value="first5">前 5 页</option>
+          <option value="custom">自定义页码</option>
+        </select>
+      </div>
+      <div class="row" id="customPagesRow">
+        <label for="customPages">自定义页码</label>
+        <input id="customPages" type="text" placeholder="例如 1,3,5-8">
+      </div>
+      <div class="row">
+        <label for="threads">线程</label>
+        <input id="threads" type="number" min="1" max="64">
+      </div>
+      <label class="check">
+        <input id="ignoreCache" type="checkbox">
+        <span>忽略缓存，强制重新翻译</span>
+      </label>
+    </div>
+
+    <button id="translate" class="primary" disabled>开始翻译</button>
+    <div class="hint" id="hint"></div>
+
+    <button id="openOptions" class="ghost">设置…</button>
+  </div>
+  <script src="common.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

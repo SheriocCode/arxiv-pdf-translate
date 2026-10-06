@@ -1,0 +1,5 @@
+# The bridge server itself only needs the Python standard library.
+# pdf2zh (PDFMathTranslate) must be installed separately, either with:
+#   pip install pdf2zh
+# or the standalone Windows bundle.
+pdf2zh
