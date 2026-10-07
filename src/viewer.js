@@ -31,6 +31,7 @@
     zoomOut: document.getElementById("zoomOut"),
     zoomIn: document.getElementById("zoomIn"),
     zoomLevel: document.getElementById("zoomLevel"),
+    blockToggle: document.getElementById("blockToggle"),
     toolProgress: document.getElementById("toolProgress"),
     toolProgressFill: document.getElementById("toolProgressFill"),
     statusPanel: document.getElementById("statusPanel"),
@@ -71,6 +72,17 @@
     currentPage: 0,
     pageDone: 0,
     pageTotal: 0,
+    blockOverlay: true,
+    blocksByPage: {},
+    lastBlocksKey: "",
+    pageWrap: {},
+    blockLayer: {},
+    rightWrap: {},
+    rightLayer: {},
+    pageSize: {},
+    renderedW: {},
+    renderedWR: {},
+    pageToRightN: {},
     viewMode: "compare",
     lastPartialKey: "",
     currentJobId: "",
@@ -175,6 +187,10 @@
     if (el.zoomNav) {
       el.zoomNav.hidden = true;
     }
+    if (el.blockToggle) {
+      el.blockToggle.hidden = true;
+    }
+    hideBlockTip();
     const key = which === "source" ? "sourceUrlObject" : "translatedUrlObject";
     if (state[key]) {
       URL.revokeObjectURL(state[key]);
@@ -303,6 +319,16 @@
     state.pageTotal = 0;
     state.rows = [];
     state.currentPageIndex = 0;
+    state.blocksByPage = {};
+    state.lastBlocksKey = "";
+    state.pageWrap = {};
+    state.blockLayer = {};
+    state.rightWrap = {};
+    state.rightLayer = {};
+    state.pageSize = {};
+    state.renderedW = {};
+    state.renderedWR = {};
+    state.pageToRightN = {};
     if (el.pageInput) {
       el.pageInput.value = "1";
     }
@@ -315,7 +341,9 @@
   }
 
   function computeFitWidth() {
-    return Math.max(220, (el.compare.clientWidth - 24 - 12) / 2);
+    const single = state.viewMode === "source" || state.viewMode === "target";
+    const available = el.compare.clientWidth - 24;
+    return Math.max(220, single ? available : (available - 12) / 2);
   }
 
   function pageWidth() {
@@ -410,25 +438,43 @@
       row.className = "compare-row";
       const cellL = document.createElement("div");
       cellL.className = "compare-cell";
+      const wrap = document.createElement("div");
+      wrap.className = "page-wrap";
       const canvas = makeCanvas();
-      cellL.appendChild(canvas);
+      wrap.appendChild(canvas);
+      const layer = document.createElement("div");
+      layer.className = "block-layer" + (state.blockOverlay ? "" : " hidden");
+      wrap.appendChild(layer);
+      cellL.appendChild(wrap);
       state.leftSlots[i] = canvas;
+      state.pageWrap[i] = wrap;
+      state.blockLayer[i] = layer;
+      state.pageSize[i] = { w: base.width, h: base.height };
       const cellR = document.createElement("div");
       cellR.className = "compare-cell";
+      const wrapR = document.createElement("div");
+      wrapR.className = "page-wrap";
       if (selected[i - 1]) {
         const ph = makePlaceholder(aspect, "排队中…");
-        cellR.appendChild(ph);
+        wrapR.appendChild(ph);
         state.rightSlots[i - 1] = ph;
       }
       else {
-        cellR.appendChild(makePlaceholder(aspect, "未选择", "page-skip"));
+        wrapR.appendChild(makePlaceholder(aspect, "未选择", "page-skip"));
         state.rightSlots[i - 1] = null;
       }
+      const layerR = document.createElement("div");
+      layerR.className = "block-layer hidden";
+      wrapR.appendChild(layerR);
+      cellR.appendChild(wrapR);
+      state.rightWrap[i] = wrapR;
+      state.rightLayer[i] = layerR;
       row.appendChild(cellL);
       row.appendChild(cellR);
       el.compare.appendChild(row);
       state.rows.push(row);
       await renderPageIntoCanvas(canvas, page, base, width);
+      state.renderedW[i] = width;
     }
     if (el.pageTotal) {
       el.pageTotal.textContent = "/ " + total;
@@ -451,15 +497,18 @@
       const slot = srcIndex === undefined ? null : state.rightSlots[srcIndex];
       const canvas = makeCanvas();
       await renderDocPageInPlace(canvas, doc, n, width);
+      state.renderedWR[n] = width;
       if (slot && slot.parentNode) {
         slot.replaceWith(canvas);
       }
       if (srcIndex !== undefined) {
         state.rightSlots[srcIndex] = canvas;
         state.rightCanvases[n] = canvas;
+        state.pageToRightN[srcIndex + 1] = n;
       }
     }
     state.rightRendered = doc.numPages;
+    renderAllBlocks();
   }
 
   function refreshPlaceholderLabels() {
@@ -548,6 +597,10 @@
         btn.classList.toggle("active", btn.getAttribute("data-mode") === mode);
       });
     }
+    if (!el.compare.hidden && state.leftDoc) {
+      state.basePageW = computeFitWidth();
+      reflow();
+    }
   }
 
   function updateZoomLabel() {
@@ -590,7 +643,184 @@
   function setZoom(z) {
     state.zoom = Math.max(0.4, Math.min(6, z));
     updateZoomLabel();
-    applyScale();
+    reflow();
+  }
+
+  let blockTipEl = null;
+  let blockTipTimer = 0;
+  function hideBlockTip() {
+    if (blockTipEl) {
+      blockTipEl.hidden = true;
+    }
+  }
+  function scheduleHideBlockTip() {
+    clearTimeout(blockTipTimer);
+    blockTipTimer = setTimeout(hideBlockTip, 250);
+  }
+  function showBlockTip(ev, src, dst) {
+    clearTimeout(blockTipTimer);
+    if (!blockTipEl) {
+      blockTipEl = document.createElement("div");
+      blockTipEl.className = "block-tip";
+      blockTipEl.hidden = true;
+      blockTipEl.addEventListener("mouseenter", function () {
+        clearTimeout(blockTipTimer);
+      });
+      blockTipEl.addEventListener("mouseleave", scheduleHideBlockTip);
+      document.body.appendChild(blockTipEl);
+    }
+    blockTipEl.innerHTML = "";
+    const a = document.createElement("div");
+    a.className = "tip-src";
+    a.textContent = src || "(空)";
+    const b = document.createElement("div");
+    b.className = "tip-dst";
+    b.textContent = dst || "(空)";
+    blockTipEl.appendChild(a);
+    blockTipEl.appendChild(b);
+    blockTipEl.hidden = false;
+    positionBlockTip(ev);
+  }
+  function positionBlockTip(ev) {
+    if (!blockTipEl || blockTipEl.hidden) {
+      return;
+    }
+    const left = Math.max(6, Math.min(window.innerWidth - 372, ev.clientX + 12));
+    const top = Math.max(48, Math.min(window.innerHeight - 120, ev.clientY + 12));
+    blockTipEl.style.left = left + "px";
+    blockTipEl.style.top = top + "px";
+  }
+
+  function clearLayer(layer) {
+    if (!layer) {
+      return;
+    }
+    while (layer.firstChild) {
+      layer.removeChild(layer.firstChild);
+    }
+  }
+
+  function renderRects(layer, wrap, page, withText) {
+    if (!layer || !wrap) {
+      return;
+    }
+    const size = state.pageSize[page];
+    const cssW = wrap.clientWidth;
+    const cssH = wrap.clientHeight;
+    if (!size || !size.w || !size.h || !cssW || !cssH) {
+      return;
+    }
+    const sx = cssW / size.w;
+    const sy = cssH / size.h;
+    const list = state.blocksByPage[page] || [];
+    for (let k = 0; k < list.length; k++) {
+      const item = list[k];
+      const bb = item.bbox || [0, 0, 0, 0];
+      const x0 = Math.max(0, bb[0]);
+      const y0 = Math.max(0, bb[1]);
+      const x1 = Math.min(size.w, bb[2]);
+      const y1 = Math.min(size.h, bb[3]);
+      if (x1 <= x0 || y1 <= y0) {
+        continue;
+      }
+      const rect = document.createElement("div");
+      const isFormula = ((item.src || "").indexOf("{v") === 0) && ((item.dst || "").indexOf("{v") === 0);
+      rect.className = "block-rect" + (isFormula ? " block-formula" : "") + (withText ? " block-live" : "");
+      rect.style.left = (x0 * sx) + "px";
+      rect.style.top = ((size.h - y1) * sy) + "px";
+      rect.style.width = ((x1 - x0) * sx) + "px";
+      rect.style.height = ((y1 - y0) * sy) + "px";
+      if (withText && !isFormula) {
+        const text = document.createElement("div");
+        text.className = "block-text";
+        text.textContent = item.dst || "";
+        rect.appendChild(text);
+      }
+      const src = item.src || "";
+      const dst = item.dst || "";
+      rect.addEventListener("mouseenter", function (ev) { showBlockTip(ev, src, dst); });
+      rect.addEventListener("mousemove", positionBlockTip);
+      rect.addEventListener("mouseleave", scheduleHideBlockTip);
+      layer.appendChild(rect);
+    }
+  }
+
+  function renderPageBlocks(page) {
+    const layerL = state.blockLayer[page];
+    const layerR = state.rightLayer[page];
+    clearLayer(layerL);
+    clearLayer(layerR);
+
+    const slot = state.rightSlots[page - 1];
+    const done = !!(slot && slot.nodeName === "CANVAS");
+
+    // While the page is translating: left shows thin frames (original), right
+    // shows one block as soon as it is translated (with its translated text).
+    // Once the real translated page is available, both overlays are cleared.
+    if (!done) {
+      renderRects(layerL, state.pageWrap[page], page, false);
+      renderRects(layerR, state.rightWrap[page], page, true);
+    }
+
+    if (layerL) {
+      layerL.classList.toggle("hidden", !state.blockOverlay || done);
+    }
+    if (layerR) {
+      layerR.classList.toggle("hidden", !state.blockOverlay || done);
+    }
+  }
+
+  function renderAllBlocks() {
+    const seen = {};
+    for (const key in state.blockLayer) {
+      seen[key] = true;
+      renderPageBlocks(parseInt(key, 10));
+    }
+    for (const key in state.rightLayer) {
+      if (!seen[key]) {
+        renderPageBlocks(parseInt(key, 10));
+      }
+    }
+  }
+
+  let blocksInFlight = false;
+  async function refreshBlocks(jobId) {
+    if (blocksInFlight || !jobId) {
+      return;
+    }
+    blocksInFlight = true;
+    try {
+      const response = await fetch(state.serverUrl + "/jobs/" + jobId + "/blocks");
+      if (!response.ok) {
+        return;
+      }
+      const data = await response.json();
+      const blocks = data.blocks || [];
+      const byPage = {};
+      for (let i = 0; i < blocks.length; i++) {
+        const item = blocks[i];
+        if (!byPage[item.page]) {
+          byPage[item.page] = [];
+        }
+        byPage[item.page].push(item);
+      }
+      state.blocksByPage = byPage;
+      renderAllBlocks();
+    }
+    catch (err) {
+      // ignore
+    }
+    finally {
+      blocksInFlight = false;
+    }
+  }
+
+  function setBlockOverlay(on) {
+    state.blockOverlay = on;
+    if (el.blockToggle) {
+      el.blockToggle.classList.toggle("active", on);
+    }
+    renderAllBlocks();
   }
 
   function showSplit() {
@@ -605,6 +835,10 @@
     }
     if (el.zoomNav) {
       el.zoomNav.hidden = false;
+    }
+    if (el.blockToggle) {
+      el.blockToggle.hidden = false;
+      el.blockToggle.classList.toggle("active", state.blockOverlay);
     }
   }
 
@@ -638,45 +872,67 @@
       showSplit();
       await renderRightPages(new Uint8Array(await response.arrayBuffer()));
       el.docTitle.textContent = "翻译中 · 已翻译 " + job.done_pages +
-        "/" + (job.total_pages || "?") + " 页";
+        "/" + (job.total_pages || "?") + " 页" +
+        (job.block_total ? " · 第 " + job.block_page + " 页块 " + job.block_index + "/" + job.block_total : "");
     }
     catch (err) {
       // Ignore preview failures; the final result still arrives on completion.
     }
   }
 
-  let scaleInFlight = false;
-  async function applyScale() {
-    if (scaleInFlight || el.compare.hidden || !state.leftDoc) {
+  let renderInFlight = false;
+  async function renderVisible() {
+    if (renderInFlight || el.compare.hidden || !state.leftDoc) {
       return;
     }
-    scaleInFlight = true;
+    renderInFlight = true;
     try {
-      applyPageWidth();
       const width = pageWidth();
-      const leftDoc = state.leftDoc;
-      for (let i = 1; i <= leftDoc.numPages; i++) {
-        const canvas = state.leftSlots[i];
-        if (canvas) {
-          await renderDocPageInPlace(canvas, leftDoc, i, width);
+      const top = el.compare.scrollTop;
+      const bottom = top + el.compare.clientHeight;
+      for (let i = 0; i < state.rows.length; i++) {
+        const row = state.rows[i];
+        if (row.offsetTop + row.offsetHeight < top - 300) {
+          continue;
         }
-      }
-      const rightDoc = state.rightDoc;
-      if (rightDoc) {
-        for (let n = 1; n <= state.rightRendered; n++) {
-          const canvas = state.rightCanvases[n];
-          if (canvas) {
-            await renderDocPageInPlace(canvas, rightDoc, n, width);
+        if (row.offsetTop > bottom + 300) {
+          break;
+        }
+        const page = i + 1;
+        const left = state.leftSlots[page];
+        if (left && state.renderedW[page] !== width) {
+          await renderDocPageInPlace(left, state.leftDoc, page, width);
+          state.renderedW[page] = width;
+        }
+        const n = state.pageToRightN[page];
+        if (n) {
+          const right = state.rightCanvases[n];
+          if (right && state.renderedWR[n] !== width) {
+            await renderDocPageInPlace(right, state.rightDoc, n, width);
+            state.renderedWR[n] = width;
           }
         }
       }
+      renderAllBlocks();
     }
     catch (err) {
       // ignore
     }
     finally {
-      scaleInFlight = false;
+      renderInFlight = false;
     }
+  }
+
+  let renderTimer = 0;
+  function scheduleRenderVisible(delay) {
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(renderVisible, delay || 160);
+  }
+
+  function reflow() {
+    applyPageWidth();
+    renderAllBlocks();
+    scheduleRenderVisible(160);
   }
 
   let scaleTimer = null;
@@ -701,7 +957,7 @@
       // Real window size change: refit the page width to the new pane width.
       state.basePageW = computeFitWidth();
     }
-    await applyScale();
+    reflow();
   }
 
   window.addEventListener("resize", scheduleScale);
@@ -737,8 +993,7 @@
     const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
     state.zoom = Math.max(0.4, Math.min(6, state.zoom * factor));
     updateZoomLabel();
-    clearTimeout(scaleTimer);
-    scaleTimer = setTimeout(applyScale, 80);
+    reflow();
   }, { passive: false });
 
   let scrollRaf = 0;
@@ -749,6 +1004,7 @@
     scrollRaf = requestAnimationFrame(function () {
       scrollRaf = 0;
       updateCurrentPage();
+      scheduleRenderVisible(120);
     });
   });
 
@@ -766,6 +1022,13 @@
       setToolProgress(job.done_pages || 0, job.total_pages || 0);
       if (!el.compare.hidden) {
         refreshPlaceholderLabels();
+        if (job.block_total) {
+          const bkey = job.block_page + ":" + job.block_index + ":" + job.block_total;
+          if (bkey !== state.lastBlocksKey) {
+            state.lastBlocksKey = bkey;
+            refreshBlocks(jobId);
+          }
+        }
       }
       const previewing = typeof job.done_pages === "number" &&
         job.done_pages > 0 && job.status === "running";
@@ -776,7 +1039,9 @@
         const hasProgress = typeof job.progress === "number";
         const pct = hasProgress ? " · " + job.progress + "%" : "";
         if (!el.compare.hidden) {
-          el.docTitle.textContent = "翻译中…" + pct + "  (" + job.elapsed + "s)";
+          el.docTitle.textContent = "翻译中…" + pct +
+            (job.block_total ? " · 第 " + job.block_page + " 页块 " + job.block_index + "/" + job.block_total : "") +
+            "  (" + job.elapsed + "s)";
         }
         else {
           setStatus("正在翻译…", (job.message || "") + "  (" + job.elapsed + "s)", {
@@ -936,6 +1201,18 @@
     if (el.zoomOut) {
       el.zoomOut.addEventListener("click", function () {
         setZoom(state.zoom / 1.15);
+      });
+    }
+    if (el.blockToggle) {
+      el.blockToggle.addEventListener("click", function () {
+        setBlockOverlay(!state.blockOverlay);
+      });
+    }
+    if (el.zoomLevel) {
+      el.zoomLevel.style.cursor = "pointer";
+      el.zoomLevel.title = "点击恢复 100%（适应宽度）";
+      el.zoomLevel.addEventListener("click", function () {
+        setZoom(1);
       });
     }
 
