@@ -107,10 +107,10 @@ internal static class Program
         string exeDir = Path.GetDirectoryName(ExePath);
         projectDir = Path.GetFullPath(Path.Combine(exeDir, ".."));
         serverDir = Path.Combine(projectDir, "server");
-        serverScript = Path.Combine(serverDir, "pdf2zh_server.py");
+        serverScript = Path.Combine(serverDir, "server.py");
         logFile = Path.Combine(serverDir, "server.log");
 
-        string bundled = Path.Combine(projectDir, "pdf2zh", "runtime", "python.exe");
+        string bundled = Path.Combine(projectDir, "engine", "runtime", "python.exe");
         python = File.Exists(bundled) ? bundled : "python";
 
         try
@@ -209,7 +209,7 @@ internal static class Program
             {
                 string commandLine = item["CommandLine"] as string;
                 if (commandLine != null &&
-                    commandLine.IndexOf("pdf2zh_server.py", StringComparison.OrdinalIgnoreCase) >= 0)
+                    commandLine.IndexOf("server.py", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     int pid = Convert.ToInt32(item["ProcessId"]);
                     try { Process.GetProcessById(pid).Kill(); } catch { }

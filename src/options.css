@@ -260,6 +260,36 @@ h1 {
   min-width: 0;
 }
 
+.control-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.control-line > input,
+.control-line > select {
+  flex: 1;
+  min-width: 0;
+}
+
+.control-line > .btn,
+.control-line > .lang-arrow {
+  flex-shrink: 0;
+}
+
+.control-line > .inline-result {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lang-arrow {
+  color: var(--muted);
+}
+
 .field-help {
   color: var(--muted);
   font-size: 12px;

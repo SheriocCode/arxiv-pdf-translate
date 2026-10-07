@@ -4,16 +4,12 @@
 
   const el = {
     serverStatus: document.getElementById("serverStatus"),
-    tabUrl: document.getElementById("tabUrl"),
     sourceLang: document.getElementById("sourceLang"),
     targetLang: document.getElementById("targetLang"),
-    outputVariant: document.getElementById("outputVariant"),
     pageMode: document.getElementById("pageMode"),
     customPages: document.getElementById("customPages"),
-    threads: document.getElementById("threads"),
     ignoreCache: document.getElementById("ignoreCache"),
     translate: document.getElementById("translate"),
-    hint: document.getElementById("hint"),
     openOptions: document.getElementById("openOptions"),
     existingSection: document.getElementById("existingSection"),
     existingList: document.getElementById("existingList")
@@ -22,7 +18,6 @@
   let activeUrl = "";
   let targetUrl = "";
   let isPdf = false;
-  let isReadOnlyViewer = false;
   let serverUrl = "";
 
   function arxivId(url) {
@@ -37,7 +32,7 @@
     const a = arxivId(stored);
     const b = arxivId(url);
     if (a && b) { return a === b; }
-    return PDF2ZH.basename(stored) === PDF2ZH.basename(url);
+    return AT.basename(stored) === AT.basename(url);
   }
 
   function formatBytes(bytes) {
@@ -87,7 +82,7 @@
       open.textContent = "打开";
       open.addEventListener("click", function () {
         chrome.tabs.create({
-          url: PDF2ZH.fileViewerUrl(
+          url: AT.fileViewerUrl(
             serverUrl + "/storage/" + entry.id,
             entry.title || entry.name,
             entry.source_url
@@ -118,24 +113,30 @@
     }
   }
 
-  function setServerStatus(ok, text) {
-    el.serverStatus.textContent = text;
-    el.serverStatus.classList.toggle("ok", ok === true);
-    el.serverStatus.classList.toggle("err", ok === false);
+  function setServerStatus(state, title) {
+    el.serverStatus.classList.remove("ok", "err", "checking");
+    el.serverStatus.classList.add(state);
+    el.serverStatus.title = title || "";
+    el.serverStatus.setAttribute("aria-label", title || "");
   }
 
   async function checkServer(serverUrl) {
     try {
       const response = await fetch(serverUrl + "/health", { cache: "no-store" });
       if (!response.ok) {
-        setServerStatus(false, "服务异常");
+        setServerStatus("err", "服务异常");
         return;
       }
       const health = await response.json();
-      setServerStatus(health.pdf2zh_available, health.pdf2zh_available ? "本机服务在线" : "未找到 pdf2zh");
+      if (health.engine_available) {
+        setServerStatus("ok", "本机服务在线");
+      }
+      else {
+        setServerStatus("err", "未找到翻译引擎");
+      }
     }
     catch (err) {
-      setServerStatus(false, "服务未启动");
+      setServerStatus("err", "服务未启动");
     }
   }
 
@@ -144,64 +145,36 @@
       auto: true,
       sourceLang: el.sourceLang.value,
       targetLang: el.targetLang.value,
-      outputVariant: el.outputVariant.value,
-      threads: Math.max(1, parseInt(el.threads.value, 10) || 4),
-      pages: PDF2ZH.pageArgument(el.pageMode.value, el.customPages.value),
+      pages: AT.pageArgument(el.pageMode.value, el.customPages.value),
       ignoreCache: el.ignoreCache.checked
     };
   }
 
   function persistOptions() {
-    PDF2ZH.saveSettings({
+    AT.saveSettings({
       sourceLang: el.sourceLang.value,
-      targetLang: el.targetLang.value,
-      outputVariant: el.outputVariant.value,
-      threads: Math.max(1, parseInt(el.threads.value, 10) || 4)
+      targetLang: el.targetLang.value
     });
   }
 
   function renderTabInfo() {
     el.translate.disabled = !isPdf;
-    el.tabUrl.innerHTML = "";
-    const label = document.createElement("strong");
-    const url = document.createElement("span");
-    if (isPdf) {
-      label.textContent = "检测到 PDF，可开始翻译";
-      url.textContent = targetUrl;
-      el.hint.textContent = "将使用本机 pdf2zh 在翻译视图中生成译文。";
-    }
-    else if (isReadOnlyViewer) {
-      label.textContent = "这是已打开的译文（缓存）";
-      url.textContent = activeUrl;
-      el.hint.textContent = "从“翻译记录”打开的是缓存译文；如需重译，请打开原 PDF 链接。";
-    }
-    else {
-      label.textContent = "当前标签不是 PDF";
-      url.textContent = activeUrl || "(无)";
-      el.hint.textContent = "打开 arXiv PDF 后，工具栏图标会显示“译”，再点开这里。";
-    }
-    el.tabUrl.appendChild(label);
-    el.tabUrl.appendChild(url);
   }
 
   async function init() {
-    const settings = await PDF2ZH.getSettings();
+    const settings = await AT.getSettings();
 
-    PDF2ZH.fillLangSelect(el.sourceLang, settings.sourceLang);
-    PDF2ZH.fillLangSelect(el.targetLang, settings.targetLang);
-    el.outputVariant.value = settings.outputVariant || "dual";
-    el.threads.value = settings.threads || 4;
+    AT.fillLangSelect(el.sourceLang, settings.sourceLang);
+    AT.fillLangSelect(el.targetLang, settings.targetLang);
 
-    serverUrl = PDF2ZH.normalizeServer(settings.serverUrl);
+    serverUrl = AT.normalizeServer(settings.serverUrl);
     checkServer(serverUrl);
 
     chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
       const tab = tabs && tabs[0];
       activeUrl = (tab && tab.url) || "";
-      const info = PDF2ZH.viewerInfo(activeUrl);
-      targetUrl = PDF2ZH.resolveTargetUrl(activeUrl);
+      targetUrl = AT.resolveTargetUrl(activeUrl);
       isPdf = !!targetUrl;
-      isReadOnlyViewer = !!(info && info.file && !info.src);
       renderTabInfo();
       if (isPdf) {
         findExisting(targetUrl);

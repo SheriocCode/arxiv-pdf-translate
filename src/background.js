@@ -1,14 +1,14 @@
 /* Arxiv PDF Translate - background service worker (MV3). */
 importScripts("common.js");
 
-const MENU_LINK = "pdf2zh-translate-link";
-const MENU_PAGE = "pdf2zh-translate-page";
+const MENU_LINK = "translate-link";
+const MENU_PAGE = "translate-page";
 const BADGE_TEXT = "译";
 const BADGE_COLOR = "#2563eb";
 
 function ensureDefaults() {
-  return PDF2ZH.getSettings().then(function (settings) {
-    return PDF2ZH.saveSettings(settings);
+  return AT.getSettings().then(function (settings) {
+    return AT.saveSettings(settings);
   });
 }
 
@@ -16,13 +16,13 @@ function rebuildMenus() {
   chrome.contextMenus.removeAll(function () {
     chrome.contextMenus.create({
       id: MENU_LINK,
-      title: "Translate link with local pdf2zh",
+      title: "Translate link with the local engine",
       contexts: ["link"],
       targetUrlPatterns: ["*://*/*.pdf*", "*://arxiv.org/pdf/*"]
     });
     chrome.contextMenus.create({
       id: MENU_PAGE,
-      title: "Translate this PDF with local pdf2zh",
+      title: "Translate this PDF with the local engine",
       contexts: ["page", "image"],
       documentUrlPatterns: ["*://*/*.pdf*", "*://arxiv.org/pdf/*"]
     });
@@ -48,12 +48,12 @@ function updateBadge(tab) {
     return;
   }
   const url = tab.url || "";
-  PDF2ZH.getSettings().then(function (settings) {
-    const show = !!settings.badgeOnPdf && PDF2ZH.isPdfUrl(url);
+  AT.getSettings().then(function (settings) {
+    const show = !!settings.badgeOnPdf && AT.isPdfUrl(url);
     setBadge(tab.id, show);
     chrome.action.setTitle({
       tabId: tab.id,
-      title: show ? "用本地 pdf2zh 翻译此 PDF" : "Arxiv PDF Translate"
+      title: show ? "用本地翻译引擎翻译此 PDF" : "Arxiv PDF Translate"
     });
   });
 }
@@ -102,11 +102,11 @@ chrome.storage.onChanged.addListener(function (changes, area) {
 
 chrome.contextMenus.onClicked.addListener(function (info, tab) {
   const url = info.linkUrl || (tab && tab.url) || "";
-  if (url && PDF2ZH.isPdfUrl(url)) {
-    PDF2ZH.openViewer(url, { auto: true });
+  if (url && AT.isPdfUrl(url)) {
+    AT.openViewer(url, { auto: true });
   }
   else if (info.linkUrl) {
-    PDF2ZH.openViewer(info.linkUrl, { auto: true });
+    AT.openViewer(info.linkUrl, { auto: true });
   }
 });
 
@@ -116,7 +116,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
   }
 
   if (message.type === "openViewer" && message.url) {
-    PDF2ZH.openViewer(message.url, message.options || { auto: true }).then(function (tab) {
+    AT.openViewer(message.url, message.options || { auto: true }).then(function (tab) {
       sendResponse({ ok: true, tabId: tab && tab.id });
     });
     return true;
@@ -128,8 +128,8 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
       const url = (tab && tab.url) || "";
       sendResponse({
         url: url,
-        isPdf: PDF2ZH.isPdfUrl(url),
-        isArxiv: PDF2ZH.isArxivPdf(url)
+        isPdf: AT.isPdfUrl(url),
+        isArxiv: AT.isArxivPdf(url)
       });
     });
     return true;

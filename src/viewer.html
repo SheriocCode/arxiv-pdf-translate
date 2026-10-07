@@ -17,23 +17,43 @@
       <label class="field translate-only">目标
         <select id="targetLang"></select>
       </label>
-      <label class="field translate-only">输出
+      <label class="field translate-only" title="导出 PDF 的格式；对照视图始终显示原文+译文">导出
         <select id="outputVariant">
           <option value="dual">双语</option>
           <option value="mono">仅译文</option>
         </select>
       </label>
       <button id="translateBtn" class="primary translate-only">开始翻译</button>
+      <div id="viewModes" class="segmented translate-only" hidden>
+        <button type="button" data-mode="source">原文</button>
+        <button type="button" data-mode="target">译文</button>
+        <button type="button" data-mode="compare" class="active">对比</button>
+      </div>
+      <div id="pageNav" class="navgroup translate-only" hidden>
+        <button id="prevPage" type="button" title="上一页">‹</button>
+        <input id="pageInput" type="text" inputmode="numeric" value="1" title="页码">
+        <span id="pageTotal" class="nav-muted">/ 0</span>
+        <button id="nextPage" type="button" title="下一页">›</button>
+      </div>
+      <div id="zoomNav" class="navgroup translate-only" hidden>
+        <button id="zoomOut" type="button" title="缩小">−</button>
+        <span id="zoomLevel" class="nav-muted">100%</span>
+        <button id="zoomIn" type="button" title="放大">+</button>
+      </div>
       <button id="toggleSourceBtn" hidden>查看原文</button>
       <button id="sourceLinkBtn" hidden>打开原文链接</button>
       <button id="saveBtn" class="primary" hidden>保存 PDF</button>
       <button id="openTabBtn" hidden>新标签打开</button>
       <button id="cancelBtn" class="danger" hidden>取消</button>
     </div>
+    <div id="toolProgress" class="tool-progress" hidden>
+      <div id="toolProgressFill" class="tool-progress-fill"></div>
+    </div>
   </header>
 
   <main>
     <iframe id="pdfFrame" title="PDF"></iframe>
+    <div id="compareView" class="compare" hidden></div>
 
     <div id="statusPanel" class="status-panel">
       <div class="spinner" id="spinner"></div>
@@ -53,6 +73,7 @@
     </div>
   </main>
 
+  <script src="vendor/pdf.min.js"></script>
   <script src="common.js"></script>
   <script src="viewer.js"></script>
 </body>

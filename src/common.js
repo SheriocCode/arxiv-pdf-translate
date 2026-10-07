@@ -172,7 +172,7 @@
     }
   }
 
-  global.PDF2ZH = {
+  global.AT = {
     DEFAULTS: DEFAULTS,
     LANGS: LANGS,
     getSettings: getSettings,

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Render the first page of a PDF to a PNG using PyMuPDF.
 
-Used by ``pdf2zh_server.py`` as a fallback when the bridge process itself
-cannot import ``fitz`` (e.g. it runs on the system Python while the bundled
-pdf2zh runtime holds the dependencies).
+Used by ``server.py`` as a fallback when the bridge process itself cannot
+import ``fitz`` (e.g. it runs on the system Python while the bundled engine
+runtime holds the dependencies).
 
 Usage: make_thumb.py <site_packages> <pdf> <out_png> [width]
 """

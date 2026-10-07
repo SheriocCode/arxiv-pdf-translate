@@ -2,21 +2,21 @@
 """Local companion server for the Arxiv PDF Translate extension.
 
 The browser extension cannot execute local programs, so this small HTTP
-service runs on 127.0.0.1. It accepts a raw PDF upload, shells out to the
-local ``pdf2zh`` (PDFMathTranslate) executable, and serves the generated
-bilingual PDF back to the extension.
+service runs on 127.0.0.1. It accepts a raw PDF upload, runs the bundled
+translation engine (``engine/``), and serves the generated PDF back to the
+extension.
 
 Endpoints
 ---------
-GET    /health                     service + pdf2zh availability probe
+GET    /health                     service + engine availability probe
 POST   /jobs?<params>              upload a PDF (raw body), start a job
 GET    /jobs/<id>                  poll job status / progress / log tail
 GET    /jobs/<id>/result           download the translated PDF
 DELETE /jobs/<id>                  cancel and clean up a job
 POST   /translate?<params>         synchronous one-shot translation
 
-Only the Python standard library is required. ``pdf2zh`` itself must be
-installed separately (``pip install pdf2zh`` or the Windows bundle).
+Only the Python standard library is required; the engine ships with the
+project under ``engine/``.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ ROOT = os.path.dirname(HERE)
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "port": 8760,
-    "pdf2zh_path": "",
+    "engine_path": "",
     "service": "openai",
     "openai_base_url": "https://api.deepseek.com",
     "openai_api_key": "",
@@ -64,14 +64,14 @@ DEFAULT_CONFIG = {
 }
 
 ENV_OVERRIDES = {
-    "PDF2ZH_PATH": "pdf2zh_path",
-    "PDF2ZH_HOST": "host",
-    "PDF2ZH_PORT": "port",
-    "PDF2ZH_SERVICE": "service",
+    "ENGINE_PATH": "engine_path",
+    "ENGINE_HOST": "host",
+    "ENGINE_PORT": "port",
+    "ENGINE_SERVICE": "service",
     "OPENAI_BASE_URL": "openai_base_url",
     "OPENAI_API_KEY": "openai_api_key",
     "OPENAI_MODEL": "openai_model",
-    "PDF2ZH_TIMEOUT": "timeout",
+    "ENGINE_TIMEOUT": "timeout",
 }
 
 VARIANT_SUFFIX = {"dual": "dual", "mono": "mono"}
@@ -84,13 +84,13 @@ _verbose = False
 
 WRITABLE_CONFIG = (
     "service", "openai_base_url", "openai_api_key", "openai_model",
-    "pdf2zh_path", "use_babeldoc", "extra_args", "timeout",
+    "engine_path", "use_babeldoc", "extra_args", "timeout",
 )
 
 
 def log(message):
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    sys.stderr.write("[%s] [pdf2zh-server] %s\n" % (stamp, message))
+    sys.stderr.write("[%s] [engine-server] %s\n" % (stamp, message))
     sys.stderr.flush()
 
 
@@ -122,8 +122,8 @@ def load_config(path, cli_args):
         config["host"] = cli_args.host
     if cli_args.port:
         config["port"] = cli_args.port
-    if cli_args.pdf2zh:
-        config["pdf2zh_path"] = cli_args.pdf2zh
+    if cli_args.engine:
+        config["engine_path"] = cli_args.engine
     if cli_args.verbose:
         config["verbose"] = True
 
@@ -143,17 +143,17 @@ def load_config(path, cli_args):
 
 
 def bundled_candidates():
-    """Locations of a pdf2zh binary shipped inside the project.
+    """Locations of the engine executable shipped inside the project.
 
     All paths are derived from this file's location, so the project keeps
     working no matter where the folder is copied or what the CWD is.
     """
-    names = ["pdf2zh.exe", "pdf2zh"] if os.name == "nt" else ["pdf2zh", "pdf2zh.exe"]
+    names = ["ArxivTranslateEngine.exe", "ArxivTranslateEngine"]
     dirs = [
-        os.path.join(ROOT, "pdf2zh", "build"),
-        os.path.join(ROOT, "pdf2zh"),
-        os.path.join(HERE, "pdf2zh", "build"),
-        os.path.join(HERE, "pdf2zh"),
+        os.path.join(ROOT, "engine"),
+        os.path.join(HERE, "engine"),
+        os.path.join(ROOT, "engine", "build"),
+        os.path.join(HERE, "engine", "build"),
         os.path.join(ROOT, "bin"),
         os.path.join(HERE, "bin"),
         ROOT,
@@ -169,10 +169,10 @@ def is_executable_available(exe):
 
 
 def resolve_executable(path):
-    """Resolve the pdf2zh executable.
+    """Resolve the engine executable.
 
     Order: explicit value (PATH, then relative to the project, then as-is),
-    then a binary bundled under the project, then ``pdf2zh`` on PATH.
+    then a binary bundled under the project.
     """
     candidate = str(path or "").strip()
     if candidate:
@@ -199,8 +199,8 @@ def resolve_executable(path):
         if os.path.isfile(bundled):
             return os.path.abspath(bundled)
 
-    found = shutil.which("pdf2zh") or shutil.which("pdf2zh.exe")
-    return found or "pdf2zh"
+    found = shutil.which("ArxivTranslateEngine")
+    return found or "ArxivTranslateEngine"
 
 
 # --------------------------------------------------------------------------- #
@@ -227,7 +227,7 @@ def config_public():
         "openai_model": _config.get("openai_model", ""),
         "openai_api_key_set": bool(_config.get("openai_api_key")),
         "openai_api_key_masked": mask_key(_config.get("openai_api_key")),
-        "pdf2zh_path": _config.get("pdf2zh_path", ""),
+        "engine_path": _config.get("engine_path", ""),
         "use_babeldoc": bool(_config.get("use_babeldoc")),
     }
 
@@ -498,7 +498,7 @@ def update_entry(key, updates):
 # --------------------------------------------------------------------------- #
 ARXIV_ID_RE = re.compile(
     r"arxiv\.org/(?:abs|pdf)/([0-9]{4}\.[0-9]{4,5})(?:v[0-9]+)?", re.I)
-USER_AGENT = "PDF2ZH-Bridge/" + BRIDGE_VERSION + " (+local)"
+USER_AGENT = "AT-Bridge/" + BRIDGE_VERSION + " (+local)"
 
 
 def fetch_url(url, timeout=6):
@@ -569,19 +569,16 @@ def enrich_storage(limit=200):
 # Thumbnails
 # --------------------------------------------------------------------------- #
 def bundled_python():
-    candidates = [
-        os.path.join(ROOT, "pdf2zh", "runtime", "python.exe"),
-        os.path.join(ROOT, "pdf2zh", "runtime", "python3"),
-        os.path.join(ROOT, "pdf2zh", "runtime", "python"),
-    ]
-    for candidate in candidates:
+    runtime = os.path.join(ROOT, "engine", "runtime")
+    for name in ("python.exe", "python3", "python"):
+        candidate = os.path.join(runtime, name)
         if os.path.isfile(candidate):
             return candidate
     return ""
 
 
 def bundled_site_packages():
-    path = os.path.join(ROOT, "pdf2zh", "site-packages")
+    path = os.path.join(ROOT, "engine", "site-packages")
     return path if os.path.isdir(path) else ""
 
 
@@ -631,6 +628,11 @@ def render_thumbnail(pdf_path, out_path, width=240):
 # --------------------------------------------------------------------------- #
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 PROGRESS_RE = re.compile(r"(\d{1,3})%\|")
+PARTIAL_RE = re.compile(r"ENGINE_PARTIAL\s+(\d+)\s+(\d+)")
+PAGE_EVENT_RE = re.compile(
+    r"ENGINE_PAGE_START\s+(\d+)"
+    r"|ENGINE_PAGE_PROGRESS\s+(\d+)\s+(\d+)\s+(\d+)"
+)
 
 
 def read_tail(path, limit=16000):
@@ -689,8 +691,10 @@ class Job(object):
         self.log_tail = ""
         self.error = None
         self.result_path = None
+        self.result_variant = None
+        self.variant_files = {}
         self.result_name = self.build_result_name()
-        self.workdir = tempfile.mkdtemp(prefix="pdf2zh-job-")
+        self.workdir = tempfile.mkdtemp(prefix="engine-job-")
         self.proc = None
         self.cancelled = False
         self.created_at = time.time()
@@ -698,6 +702,11 @@ class Job(object):
         self.cache_key = None
         self.cached = False
         self.progress = None
+        self.done_pages = 0
+        self.total_pages = 0
+        self.current_page = 0
+        self.page_done = 0
+        self.page_total = 0
 
     def build_result_name(self):
         base = os.path.basename(self.filename or "source.pdf")
@@ -718,6 +727,11 @@ class Job(object):
             "result_name": self.result_name,
             "log_tail": self.log_tail[-2000:],
             "progress": self.progress,
+            "done_pages": self.done_pages,
+            "total_pages": self.total_pages,
+            "current_page": self.current_page,
+            "page_done": self.page_done,
+            "page_total": self.page_total,
             "cached": self.cached,
             "elapsed": round((self.finished_at or time.time()) - self.created_at, 1),
         }
@@ -807,7 +821,7 @@ def resolve_result(workdir, variant):
 def run_job(job):
     params = job.params
     workdir = job.workdir
-    log_path = os.path.join(workdir, "pdf2zh.log")
+    log_path = os.path.join(workdir, "engine.log")
 
     job.cache_key = cache_key(job.source_bytes, params)
     if not params.get("ignore_cache"):
@@ -829,9 +843,14 @@ def run_job(job):
         job.fail("failed to stage uploaded PDF: %s" % err)
         return
 
-    exe = resolve_executable(_config["pdf2zh_path"])
+    exe = resolve_executable(_config["engine_path"])
     exe_dir = os.path.dirname(exe) if os.path.isfile(exe) else ""
     args = build_args(params, workdir)
+    # The bundled engine understands --partial-dir (page-level live preview).
+    if os.path.basename(exe).lower() == "arxivtranslateengine.exe":
+        partial_dir = os.path.join(workdir, "partials")
+        os.makedirs(partial_dir, exist_ok=True)
+        args += ["--partial-dir", partial_dir]
     env = os.environ.copy()
     if _config.get("openai_base_url"):
         env["OPENAI_BASE_URL"] = str(_config["openai_base_url"])
@@ -844,8 +863,8 @@ def run_job(job):
     env["PYTHONUNBUFFERED"] = "1"
 
     job.status = "running"
-    job.message = "pdf2zh started"
-    log("job %s starting pdf2zh (service=%s, model=%s)" % (
+    job.message = "engine started"
+    log("job %s starting engine (service=%s, model=%s)" % (
         job.id, params.get("service"), env.get("OPENAI_MODEL", "")))
     log("job %s command: %s %s" % (job.id, exe, " ".join(args)))
     if _verbose:
@@ -875,27 +894,54 @@ def run_job(job):
                     return
                 if time.time() - started > _config["timeout"]:
                     job.proc.kill()
-                    job.fail("pdf2zh timed out after %ss" % _config["timeout"])
+                    job.fail("engine timed out after %ss" % _config["timeout"])
                     return
                 raw = read_tail(log_path)
                 job.progress = parse_progress(raw)
+                matches = PARTIAL_RE.findall(raw)
+                if matches:
+                    job.done_pages = int(matches[-1][0])
+                    job.total_pages = int(matches[-1][1])
+                current_page = job.current_page
+                page_done = job.page_done
+                page_total = job.page_total
+                for event in PAGE_EVENT_RE.finditer(raw):
+                    if event.group(1) is not None:
+                        current_page = int(event.group(1))
+                        page_done = 0
+                        page_total = 0
+                    else:
+                        current_page = int(event.group(2))
+                        page_done = int(event.group(3))
+                        page_total = int(event.group(4))
+                job.current_page = current_page
+                job.page_done = page_done
+                job.page_total = page_total
                 job.log_tail = clean_log(raw)
                 job.message = last_log_line(raw) or "translating"
                 time.sleep(0.5)
             exit_code = job.proc.returncode
     except FileNotFoundError:
-        job.fail("pdf2zh executable not found: %s" % exe)
+        job.fail("engine executable not found: %s" % exe)
         return
     except OSError as err:
-        job.fail("failed to launch pdf2zh: %s" % err)
+        job.fail("failed to launch engine: %s" % err)
         return
 
     job.log_tail = clean_log(read_tail(log_path))
     if exit_code != 0:
-        job.fail("pdf2zh exited with code %s\n%s" % (exit_code, job.log_tail[-3000:]))
+        job.fail("engine exited with code %s\n%s" % (exit_code, job.log_tail[-3000:]))
         return
 
     job.progress = 100
+    if job.total_pages:
+        job.done_pages = job.total_pages
+
+    job.result_variant = params.get("output_variant", "dual")
+    for variant in ("dual", "mono"):
+        variant_path = os.path.join(workdir, "source-%s.pdf" % variant)
+        if os.path.isfile(variant_path):
+            job.variant_files[variant] = variant_path
 
     result = resolve_result(workdir, params.get("output_variant", "dual"))
     if not result:
@@ -972,7 +1018,7 @@ class BridgeServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "PDF2ZHBridge/0.1"
+    server_version = "ATBridge/0.1"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
@@ -1024,6 +1070,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
         parts = [p for p in parsed.path.split("/") if p]
 
         if parsed.path in ("/", "/health"):
@@ -1041,7 +1088,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(404, {"error": "job not found"})
                 return
             if len(parts) >= 3 and parts[2] == "result":
-                self.handle_result(job)
+                self.handle_result(job, query)
+                return
+            if len(parts) >= 3 and parts[2] == "partial":
+                self.handle_partial(job, query)
                 return
             self.send_json(200, job.public())
             return
@@ -1110,14 +1160,14 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- implementations --------------------------------------------------- #
     def handle_health(self):
-        exe = resolve_executable(_config["pdf2zh_path"])
+        exe = resolve_executable(_config["engine_path"])
         available = is_executable_available(exe)
         self.send_json(200, {
             "ok": True,
-            "service": "pdf2zh-bridge",
+            "service": "translate-bridge",
             "version": BRIDGE_VERSION,
-            "pdf2zh": exe,
-            "pdf2zh_available": available,
+            "engine": exe,
+            "engine_available": available,
             "defaults": {
                 "source_lang": _config["source_lang"],
                 "target_lang": _config["target_lang"],
@@ -1138,18 +1188,48 @@ class Handler(BaseHTTPRequestHandler):
         job = create_job(body, params)
         self.send_json(200, {"id": job.id, "status": job.status, "result_name": job.result_name})
 
-    def handle_result(self, job):
-        if job.status != "done" or not job.result_path or not os.path.isfile(job.result_path):
+    def handle_result(self, job, query=None):
+        variant = None
+        if query:
+            variant = (query.get("variant") or [None])[0]
+        if variant not in ("dual", "mono"):
+            variant = job.result_variant or _config.get("output_variant", "dual")
+
+        path = job.variant_files.get(variant)
+        if not path or not os.path.isfile(path):
+            path = job.result_path
+        if job.status != "done" or not path or not os.path.isfile(path):
             self.send_json(409, {"error": "result not ready", "status": job.status})
             return
         try:
-            with open(job.result_path, "rb") as handle:
+            with open(path, "rb") as handle:
                 data = handle.read()
         except OSError as err:
             self.send_json(500, {"error": "failed to read result: %s" % err})
             return
+        name = re.sub(r"\.(dual|mono)\.", ".%s." % variant, job.result_name or "result.pdf")
         self.send_bytes(200, "application/pdf", data, {
-            "Content-Disposition": content_disposition(job.result_name, "attachment"),
+            "Content-Disposition": content_disposition(name, "attachment"),
+        })
+
+    def handle_partial(self, job, query):
+        variant = (query.get("variant") or ["dual"])[0]
+        if variant not in ("dual", "mono"):
+            variant = "dual"
+        path = os.path.join(job.workdir, "partials", "partial-%s.pdf" % variant)
+        if not os.path.isfile(path):
+            self.send_json(404, {"error": "partial not ready"})
+            return
+        try:
+            with open(path, "rb") as handle:
+                data = handle.read()
+        except OSError as err:
+            self.send_json(500, {"error": "failed to read partial: %s" % err})
+            return
+        self.send_bytes(200, "application/pdf", data, {
+            "Cache-Control": "no-store",
+            "Content-Disposition": content_disposition(
+                job.result_name or "partial.pdf", "inline"),
         })
 
     def handle_storage_list(self):
@@ -1251,10 +1331,10 @@ class Handler(BaseHTTPRequestHandler):
 def main(argv=None):
     global _config, _verbose
 
-    parser = argparse.ArgumentParser(description="Local pdf2zh bridge for the browser extension.")
+    parser = argparse.ArgumentParser(description="Local translation-engine bridge for the browser extension.")
     parser.add_argument("--host", help="bind address (default 127.0.0.1)")
     parser.add_argument("--port", type=int, help="bind port (default 8760)")
-    parser.add_argument("--pdf2zh", help="path to the pdf2zh executable")
+    parser.add_argument("--engine", help="path to the engine executable")
     parser.add_argument("--config", help="path to a JSON config file")
     parser.add_argument("--verbose", "-v", action="store_true", help="verbose logging")
     args = parser.parse_args(argv)
@@ -1269,16 +1349,16 @@ def main(argv=None):
         log("the server may already be running; exiting.")
         return
 
-    exe = resolve_executable(_config["pdf2zh_path"])
+    exe = resolve_executable(_config["engine_path"])
     available = is_executable_available(exe)
     log("bridge version: %s (storage cache enabled)" % BRIDGE_VERSION)
     log("project root: %s" % ROOT)
     log("storage dir: %s" % STORAGE_DIR)
     log("listening on http://%s:%s" % (_config["host"], _config["port"]))
-    log("pdf2zh: %s (%s)" % (exe, "found" if available else "NOT FOUND"))
+    log("engine: %s (%s)" % (exe, "found" if available else "NOT FOUND"))
     if not available:
-        log("warning: pdf2zh was not found; put it in <project>/pdf2zh/ or set "
-            "'pdf2zh_path' in config.json / PDF2ZH_PATH")
+        log("warning: engine was not found; put it in <project>/engine/ or set "
+            "'engine_path' in config.json / ENGINE_PATH")
 
     threading.Thread(target=enrich_storage, daemon=True).start()
 

@@ -30,7 +30,7 @@
       </nav>
 
       <div class="sidebar-foot">
-        <a class="side-link" id="githubLink" href="https://github.com/" target="_blank" rel="noreferrer" title="项目主页">
+        <a class="side-link" id="githubLink" href="https://github.com/SheriocCode/arxiv-pdf-translate" target="_blank" rel="noreferrer" title="项目主页">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
           <span>GitHub</span>
         </a>
@@ -40,21 +40,21 @@
     <main class="content">
       <section class="panel is-active" data-panel="config">
         <h1>配置</h1>
-        <p class="lead">扩展与本地 pdf2zh 服务的连接与默认翻译参数，修改后自动保存。</p>
+        <p class="lead">扩展与本地翻译服务的连接与默认翻译参数，修改后自动保存。</p>
 
         <h2 class="subhead">本地服务</h2>
-        <p class="sublead">扩展会把 PDF 交给这个本机服务，由它调用 <code>pdf2zh</code>（PDFMathTranslate）。
+        <p class="sublead">扩展会把 PDF 交给这个本机服务，由它调用随项目携带的翻译引擎（<code>engine/</code>）。
           地址需与 <code>server/config.json</code> 的端口一致。</p>
         <div class="field-row">
           <label for="serverUrl">服务地址</label>
           <div class="field-control">
-            <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8760">
+            <div class="control-line">
+              <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8760">
+              <button id="testBtn" class="btn">测试连接</button>
+              <span id="testResult" class="inline-result"></span>
+            </div>
             <div class="field-help">默认 <code>http://127.0.0.1:8760</code>。</div>
           </div>
-        </div>
-        <div class="actions">
-          <button id="testBtn" class="btn">测试连接</button>
-          <span id="testResult" class="inline-result"></span>
         </div>
 
         <h2 class="subhead">模型接口</h2>
@@ -68,28 +68,30 @@
         <div class="field-row">
           <label for="apiKey">API 密钥</label>
           <div class="field-control">
-            <input id="apiKey" type="text" placeholder="sk-..." autocomplete="off" spellcheck="false">
+            <div class="control-line">
+              <input id="apiKey" type="text" placeholder="sk-..." autocomplete="off" spellcheck="false">
+              <button id="saveApiBtn" class="btn">保存到服务</button>
+              <button id="clearKeyBtn" class="btn">清除密钥</button>
+            </div>
             <div class="field-help" id="apiKeyHelp">形如 sk-…，留空则保持原密钥不变。</div>
+            <span id="apiResult" class="inline-result"></span>
           </div>
-        </div>
-        <div class="actions">
-          <button id="saveApiBtn" class="btn">保存到服务</button>
-          <button id="clearKeyBtn" class="btn">清除密钥</button>
-          <span id="apiResult" class="inline-result"></span>
         </div>
 
         <h2 class="subhead">翻译选项</h2>
         <p class="sublead">这里的默认值会写入扩展设置；在翻译选项面板里也可以临时调整。相同 PDF 与参数会命中本地缓存。</p>
         <div class="field-row">
-          <label for="sourceLang">源语言</label>
-          <div class="field-control"><select id="sourceLang"></select></div>
+          <label for="sourceLang">语言</label>
+          <div class="field-control">
+            <div class="control-line">
+              <select id="sourceLang"></select>
+              <span class="lang-arrow">→</span>
+              <select id="targetLang"></select>
+            </div>
+          </div>
         </div>
         <div class="field-row">
-          <label for="targetLang">目标语言</label>
-          <div class="field-control"><select id="targetLang"></select></div>
-        </div>
-        <div class="field-row">
-          <label for="outputVariant">输出 PDF</label>
+          <label for="outputVariant">默认导出格式</label>
           <div class="field-control">
             <select id="outputVariant">
               <option value="dual">双语 PDF（原文 + 译文）</option>
@@ -101,7 +103,7 @@
           <label for="threads">线程数</label>
           <div class="field-control">
             <input id="threads" type="number" min="1" max="64">
-            <div class="field-help">传给 <code>pdf2zh -t</code>。</div>
+            <div class="field-help">传给翻译引擎的线程数。</div>
           </div>
         </div>
 

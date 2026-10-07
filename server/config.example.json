@@ -1,7 +1,7 @@
 {
   "host": "127.0.0.1",
   "port": 8760,
-  "pdf2zh_path": "",
+  "engine_path": "",
   "service": "openai",
   "openai_base_url": "https://api.deepseek.com",
   "openai_api_key": "",

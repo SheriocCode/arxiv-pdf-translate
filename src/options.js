@@ -88,8 +88,8 @@
   }
 
   function fillLangs() {
-    PDF2ZH.fillLangSelect(el.sourceLang);
-    PDF2ZH.fillLangSelect(el.targetLang);
+    AT.fillLangSelect(el.sourceLang);
+    AT.fillLangSelect(el.targetLang);
   }
 
   /* -- navigation -------------------------------------------------------- */
@@ -107,8 +107,8 @@
 
   /* -- settings ---------------------------------------------------------- */
   async function load() {
-    const settings = await PDF2ZH.getSettings();
-    serverUrl = PDF2ZH.normalizeServer(settings.serverUrl);
+    const settings = await AT.getSettings();
+    serverUrl = AT.normalizeServer(settings.serverUrl);
     el.serverUrl.value = serverUrl;
     el.sourceLang.value = settings.sourceLang;
     el.targetLang.value = settings.targetLang;
@@ -117,7 +117,7 @@
   }
 
   async function autoSave() {
-    const nextServer = PDF2ZH.normalizeServer(el.serverUrl.value);
+    const nextServer = AT.normalizeServer(el.serverUrl.value);
     const values = {
       serverUrl: nextServer,
       sourceLang: el.sourceLang.value,
@@ -126,7 +126,7 @@
       threads: Math.max(1, parseInt(el.threads.value, 10) || 4)
     };
     el.serverUrl.value = nextServer;
-    await PDF2ZH.saveSettings(values);
+    await AT.saveSettings(values);
     showToast("已保存");
     if (nextServer !== serverUrl) {
       serverUrl = nextServer;
@@ -199,7 +199,7 @@
   }
 
   async function checkServer() {
-    const target = PDF2ZH.normalizeServer(el.serverUrl.value);
+    const target = AT.normalizeServer(el.serverUrl.value);
     setDot(null, "检测中…");
     try {
       const response = await fetch(target + "/health", { cache: "no-store" });
@@ -208,7 +208,7 @@
         return;
       }
       const health = await response.json();
-      setDot(health.pdf2zh_available, health.pdf2zh_available ? "online" : "offline");
+      setDot(health.engine_available, health.engine_available ? "online" : "offline");
     }
     catch (err) {
       setDot(false, "offline");
@@ -216,7 +216,7 @@
   }
 
   async function testConnection() {
-    const target = PDF2ZH.normalizeServer(el.serverUrl.value);
+    const target = AT.normalizeServer(el.serverUrl.value);
     setResult(el.testResult, "检测中…", null);
     try {
       const response = await fetch(target + "/health", { cache: "no-store" });
@@ -225,11 +225,11 @@
         return;
       }
       const health = await response.json();
-      if (health.pdf2zh_available) {
-        setResult(el.testResult, "连接成功，pdf2zh: " + health.pdf2zh, true);
+      if (health.engine_available) {
+        setResult(el.testResult, "连接成功", true);
       }
       else {
-        setResult(el.testResult, "服务在线，但未找到 pdf2zh", false);
+        setResult(el.testResult, "服务在线，但未找到翻译引擎", false);
       }
     }
     catch (err) {
@@ -261,7 +261,7 @@
   function openEntry(entry) {
     const fileUrl = serverUrl + "/storage/" + entry.id;
     chrome.tabs.create({
-      url: PDF2ZH.fileViewerUrl(fileUrl, entry.title || entry.name, entry.source_url)
+      url: AT.fileViewerUrl(fileUrl, entry.title || entry.name, entry.source_url)
     });
   }
 
