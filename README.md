@@ -1,7 +1,8 @@
 <p align="center">
   <img src="icons/logo.svg" height="56" alt="">
-    
-  <img src="icons/arxiv_pdf_translate.svg" height="56" alt="Arxiv PDF Translate">
+  &#160;&#160;
+  <img src="icons/arxiv_pdf_translate_black.svg#gh-light-mode-only" height="56" alt="Arxiv PDF Translate">
+  <img src="icons/arxiv_pdf_translate.svg#gh-dark-mode-only" height="56" alt="Arxiv PDF Translate">
 </p>
 
 <p align="center">在浏览器里翻译 arXiv 论文 PDF 与本地 PDF —— 全程在本机完成。</p>
@@ -122,6 +123,19 @@ launcher\build-launcher.bat
 ```
 
 （用系统自带的 .NET Framework `csc` 编译，无需联网或额外依赖。`TrayApp.cs` 为源码。）
+
+### WPF 版启动器（可选）
+
+另有基于 **.NET Framework 4.8 + WPF** 的启动器 `launcher/ArxivPdfTranslateWpf.exe`：双击打开一个
+暗色主题的控制窗口——服务状态、启动/停止、开机自启、创建桌面快捷方式、实时日志；关闭窗口最小化到
+托盘，托盘菜单可重新打开或退出。同样支持 `ArxivPdfTranslateWpf.exe --server` 只启动服务。
+
+```powershell
+launcher\build-wpf-launcher.bat
+```
+
+（用 .NET Framework 自带的 MSBuild + Roslyn `csc` 编译，XAML 主题已编译进 exe，分发只需该单文件。
+本机若缺 .NET Framework 4.8 Developer Pack 会有 `MSB3644/MSB3270` 告警，可忽略；源码在 `launcher/wpf/`。）
 
 > 也可以不改文件：扩展**设置页 → 配置 → 模型接口**里直接填写接口地址、API 密钥、模型名称等，
 > 点“保存到服务”即写回 `server/config.json`（密钥只显示为掩码；清除密钥有单独按钮）。

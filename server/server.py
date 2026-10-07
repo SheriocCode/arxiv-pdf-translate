@@ -629,6 +629,7 @@ def render_thumbnail(pdf_path, out_path, width=240):
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 PROGRESS_RE = re.compile(r"(\d{1,3})%\|")
 PARTIAL_RE = re.compile(r"ENGINE_PARTIAL\s+(\d+)\s+(\d+)")
+BLOCK_RE = re.compile(r"ENGINE_BLOCK\s+(\d+)\s+(\d+)\s+(\d+)")
 PAGE_EVENT_RE = re.compile(
     r"ENGINE_PAGE_START\s+(\d+)"
     r"|ENGINE_PAGE_PROGRESS\s+(\d+)\s+(\d+)\s+(\d+)"
@@ -707,6 +708,9 @@ class Job(object):
         self.current_page = 0
         self.page_done = 0
         self.page_total = 0
+        self.block_page = 0
+        self.block_index = 0
+        self.block_total = 0
 
     def build_result_name(self):
         base = os.path.basename(self.filename or "source.pdf")
@@ -732,6 +736,9 @@ class Job(object):
             "current_page": self.current_page,
             "page_done": self.page_done,
             "page_total": self.page_total,
+            "block_page": self.block_page,
+            "block_index": self.block_index,
+            "block_total": self.block_total,
             "cached": self.cached,
             "elapsed": round((self.finished_at or time.time()) - self.created_at, 1),
         }
@@ -851,6 +858,9 @@ def run_job(job):
         partial_dir = os.path.join(workdir, "partials")
         os.makedirs(partial_dir, exist_ok=True)
         args += ["--partial-dir", partial_dir]
+        events_dir = os.path.join(workdir, "events")
+        os.makedirs(events_dir, exist_ok=True)
+        args += ["--events-dir", events_dir]
     env = os.environ.copy()
     if _config.get("openai_base_url"):
         env["OPENAI_BASE_URL"] = str(_config["openai_base_url"])
@@ -917,6 +927,12 @@ def run_job(job):
                 job.current_page = current_page
                 job.page_done = page_done
                 job.page_total = page_total
+                block_matches = BLOCK_RE.findall(raw)
+                if block_matches:
+                    last = block_matches[-1]
+                    job.block_page = int(last[0])
+                    job.block_index = int(last[1])
+                    job.block_total = int(last[2])
                 job.log_tail = clean_log(raw)
                 job.message = last_log_line(raw) or "translating"
                 time.sleep(0.5)
@@ -1081,6 +1097,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, config_public())
             return
 
+        if parsed.path in ("/jobs", "/jobs/"):
+            with _jobs_lock:
+                items = list(_jobs.values())
+            items.sort(key=lambda item: item.created_at, reverse=True)
+            payload = []
+            for item in items:
+                data = item.public()
+                data["filename"] = item.filename
+                data["created_at"] = item.created_at
+                payload.append(data)
+            self.send_json(200, {"jobs": payload})
+            return
+
         if len(parts) >= 2 and parts[0] == "jobs":
             job_id = parts[1]
             job = _jobs.get(job_id)
@@ -1092,6 +1121,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if len(parts) >= 3 and parts[2] == "partial":
                 self.handle_partial(job, query)
+                return
+            if len(parts) >= 3 and parts[2] == "blocks":
+                self.handle_blocks(job)
                 return
             self.send_json(200, job.public())
             return
@@ -1231,6 +1263,26 @@ class Handler(BaseHTTPRequestHandler):
             "Content-Disposition": content_disposition(
                 job.result_name or "partial.pdf", "inline"),
         })
+
+    def handle_blocks(self, job):
+        path = os.path.join(job.workdir, "events", "engine-events.jsonl")
+        blocks = []
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            blocks.append(json.loads(line))
+                        except ValueError:
+                            pass
+            except OSError:
+                pass
+        self.send_bytes(200, "application/json; charset=utf-8",
+                        json.dumps({"blocks": blocks}).encode("utf-8"),
+                        {"Cache-Control": "no-store"})
 
     def handle_storage_list(self):
         entries, total = storage_list()
