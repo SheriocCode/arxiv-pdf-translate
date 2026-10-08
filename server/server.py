@@ -37,10 +37,15 @@ import time
 import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 BRIDGE_VERSION = "0.2.0"
+APP_VERSION = "0.5.0"
+UPDATE_MANIFEST_URL_DEFAULT = (
+    "https://raw.githubusercontent.com/SheriocCode/arxiv-pdf-translate/main/update.json"
+)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -81,6 +86,7 @@ DEFAULT_CONFIG = {
     "timeout": 3600,
     "keep_temp": False,
     "verbose": False,
+    "update_url": UPDATE_MANIFEST_URL_DEFAULT,
 }
 
 ENV_OVERRIDES = {
@@ -106,6 +112,7 @@ WRITABLE_CONFIG = (
     "service", "openai_base_url", "openai_api_key", "openai_model",
     "engine_path", "use_babeldoc", "extra_args", "timeout",
     "source_lang", "target_lang", "output_variant", "threads",
+    "update_url",
 )
 
 
@@ -266,6 +273,7 @@ def config_public():
         "engine_path": _config.get("engine_path", ""),
         "use_babeldoc": bool(_config.get("use_babeldoc")),
         "extra_args": _config.get("extra_args", ""),
+        "update_url": _config.get("update_url", ""),
         "timeout": _config.get("timeout", 3600),
         "port": _config.get("port", 18760),
         "source_lang": _config.get("source_lang", "en"),
@@ -507,6 +515,215 @@ def clear_log():
         return False
     log("log cleared", "INFO", "SYSTEM")
     return True
+
+
+# --------------------------------------------------------------------------- #
+# Software update (下载补丁 → 校验 → 解压 → 写重启脚本 → 退出 → 重启)
+# --------------------------------------------------------------------------- #
+UPDATE_DIR = os.path.join(tempfile.gettempdir(), "at-update")
+
+_update_lock = threading.Lock()
+_update_state = {
+    "state": "idle", "percent": 0, "message": "", "error": "",
+    "current": APP_VERSION, "latest": "", "channel": "", "notes": "",
+    "extension": False,
+}
+_server_ref = None
+
+
+def version_tuple(value):
+    parts = re.findall(r"\d+", str(value or ""))
+    return tuple(int(p) for p in parts[:4]) or (0,)
+
+
+def engine_version():
+    path = os.path.join(ROOT, "engine", "VERSION")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    except OSError:
+        return ""
+
+
+def _set_update(**fields):
+    with _update_lock:
+        _update_state.update(fields)
+
+
+def get_update_state():
+    with _update_lock:
+        return dict(_update_state)
+
+
+def fetch_json_url(url, timeout=8):
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def update_check():
+    url = str(_config.get("update_url") or "").strip()
+    if not url:
+        return {"ok": False, "error": "未配置更新源（update_url）"}
+    try:
+        data = fetch_json_url(url)
+    except Exception as err:  # noqa: BLE001 - surfaced to the UI
+        return {"ok": False, "error": "无法获取更新信息：%s" % err}
+
+    latest = str(data.get("version") or "")
+    current = APP_VERSION
+    required_engine = str(data.get("engine_version") or "")
+    local_engine = engine_version()
+    has_update = version_tuple(latest) > version_tuple(current)
+
+    patch = data.get("patch") or {}
+    installer = data.get("installer") or {}
+    engine_match = (not required_engine) or (required_engine == local_engine)
+    use_patch = bool(has_update and engine_match and patch.get("url")
+                     and str(patch.get("from") or "") == current)
+    installer_url = str(installer.get("url") or "")
+    requires_installer = bool(has_update and not use_patch and installer_url)
+
+    return {
+        "ok": True,
+        "current": current,
+        "latest": latest or current,
+        "has_update": has_update,
+        "engine_version": local_engine,
+        "required_engine": required_engine,
+        "channel": "patch" if use_patch else ("installer" if requires_installer else "none"),
+        "url": str(patch.get("url") or "") if use_patch else "",
+        "sha256": str(patch.get("sha256") or "") if use_patch else "",
+        "installer_url": installer_url,
+        "requires_installer": requires_installer,
+        "notes": str(data.get("notes") or ""),
+    }
+
+
+def update_apply():
+    with _update_lock:
+        if _update_state["state"] in ("downloading", "staging", "ready", "applying"):
+            return {"ok": False, "error": "更新已在进行中"}
+    info = update_check()
+    if not info.get("ok"):
+        return info
+    if not info.get("has_update"):
+        return {"ok": True, "has_update": False}
+    if info.get("channel") != "patch":
+        return {"ok": False, "error": "此更新需要重新安装，请下载最新安装包"}
+    if not info.get("url"):
+        return {"ok": False, "error": "更新信息缺少下载地址"}
+    _set_update(state="downloading", percent=0, error="", message="下载中…",
+                current=info["current"], latest=info["latest"],
+                channel=info["channel"], notes=info["notes"], extension=False)
+    threading.Thread(target=_run_update, args=(info,), daemon=True).start()
+    return {"ok": True, "has_update": True, "channel": info["channel"]}
+
+
+def _download(url, dest, expected_sha=None):
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    digest = hashlib.sha256()
+    with urllib.request.urlopen(request, timeout=30) as response, open(dest, "wb") as handle:
+        total = int(response.headers.get("Content-Length") or 0)
+        got = 0
+        while True:
+            chunk = response.read(65536)
+            if not chunk:
+                break
+            handle.write(chunk)
+            digest.update(chunk)
+            got += len(chunk)
+            _set_update(percent=(int(got * 100 / total) if total else 0))
+    actual = digest.hexdigest()
+    if expected_sha and actual.lower() != expected_sha.lower():
+        raise ValueError("sha256 校验失败（期望 %s… 实际 %s…）"
+                         % (expected_sha[:12], actual[:12]))
+    return actual
+
+
+def _stage_update(source):
+    url = source.get("url")
+    expected_sha = source.get("sha256") or None
+    os.makedirs(UPDATE_DIR, exist_ok=True)
+    pkg = os.path.join(UPDATE_DIR, "pkg.zip")
+    staging = os.path.join(UPDATE_DIR, "staging")
+    shutil.rmtree(staging, ignore_errors=True)
+    os.makedirs(staging, exist_ok=True)
+    _set_update(state="downloading", percent=0, message="下载中…")
+    _download(url, pkg, expected_sha)
+    _set_update(state="staging", percent=100, message="校验并解压…")
+    extension = False
+    base = os.path.realpath(staging)
+    with zipfile.ZipFile(pkg) as archive:
+        for name in archive.namelist():
+            target = os.path.realpath(os.path.join(staging, name))
+            if target != base and not target.startswith(base + os.sep):
+                raise ValueError("压缩包包含非法路径：%s" % name)
+            if name.replace("\\", "/").startswith("src/"):
+                extension = True
+        archive.extractall(staging)
+    deletes = []
+    meta = os.path.join(staging, "patch.json")
+    if os.path.isfile(meta):
+        try:
+            with open(meta, "r", encoding="utf-8") as handle:
+                deletes = json.load(handle).get("delete") or []
+        except (OSError, ValueError):
+            deletes = []
+    return staging, deletes, extension
+
+
+def _write_updater(project_dir, staging_dir, deletes, port):
+    launcher = find_launcher_exe()
+    bat = os.path.join(UPDATE_DIR, "apply.bat")
+    probe = (
+        "powershell -NoProfile -Command "
+        "\"try{(New-Object Net.Sockets.TcpClient).Connect('127.0.0.1',%d)"
+        "|Out-Null;exit 0}catch{exit 1}\" >nul 2>&1" % port
+    )
+    lines = [
+        "@echo off",
+        "setlocal",
+        'set "PROJ=%s"' % project_dir,
+        'set "STAGE=%s"' % staging_dir,
+        "rem 等待旧服务释放端口",
+        "for /l %%i in (1,1,30) do (",
+        "  " + probe,
+        "  if errorlevel 1 goto copy",
+        "  timeout /t 1 /nobreak >nul",
+        ")",
+        ":copy",
+        "timeout /t 1 /nobreak >nul",
+        'robocopy "%STAGE%" "%PROJ%" /E /R:5 /W:1 /NFL /NDL /NJH /NJS /NP /XF _update_* patch.json >nul',
+    ]
+    for rel in deletes:
+        lines.append('del /f /q "%PROJ%\\' + str(rel).replace("/", "\\") + '" 2>nul')
+    if launcher:
+        lines.append('start "" "%s" --server' % launcher)
+    lines.append('(goto) 2>nul & del "%~f0"')
+    with open(bat, "w", encoding="ascii", errors="ignore", newline="") as handle:
+        handle.write("\r\n".join(lines) + "\r\n")
+    return bat
+
+
+def _run_update(source):
+    try:
+        staging, deletes, extension = _stage_update(source)
+        _set_update(extension=extension, message="准备重启…")
+        bat = _write_updater(ROOT, staging, deletes, int(_config.get("port")))
+        _set_update(state="ready")
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | \
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        subprocess.Popen(["cmd", "/c", bat], cwd=UPDATE_DIR,
+                         creationflags=flags, close_fds=True)
+        _set_update(state="applying", message="正在重启服务…")
+        time.sleep(1.0)
+        log("update staged, restarting to apply", "WARN", "SYSTEM")
+        if _server_ref is not None:
+            threading.Thread(target=_server_ref.shutdown, daemon=True).start()
+    except Exception as err:  # noqa: BLE001 - surfaced to the UI
+        log("update failed: %s" % err, "ERROR", "SYSTEM")
+        _set_update(state="error", error=str(err), message="更新失败")
 
 
 # --------------------------------------------------------------------------- #
@@ -1415,6 +1632,8 @@ class Handler(BaseHTTPRequestHandler):
             "platform": platform.system().lower(),
             "pid": os.getpid(),
             "version": BRIDGE_VERSION,
+            "app_version": APP_VERSION,
+            "engine_version": engine_version(),
             "config_path": config_path(),
             "project_root": ROOT,
             "log_file": LOG_FILE_PATH,
@@ -1465,6 +1684,14 @@ class Handler(BaseHTTPRequestHandler):
                 "count": len(entries),
                 "entries": entries,
             })
+            return
+
+        if parsed.path == "/update/check":
+            self.send_json(200, update_check())
+            return
+
+        if parsed.path == "/update/progress":
+            self.send_json(200, get_update_state())
             return
 
         if len(parts) == 2 and parts[0] in ("web", "icons"):
@@ -1552,6 +1779,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/logs/clear":
             self.send_json(200, {"ok": clear_log()})
+            return
+        if parsed.path == "/update/apply":
+            self.send_json(200, update_apply())
             return
         if parsed.path == "/storage/groups":
             self.handle_create_group()
@@ -1775,7 +2005,7 @@ class Handler(BaseHTTPRequestHandler):
 # Entry point
 # --------------------------------------------------------------------------- #
 def main(argv=None):
-    global _config, _verbose
+    global _config, _verbose, _server_ref
 
     # The log file is read back as UTF-8; force stdio to UTF-8 so non-ASCII
     # (Chinese src/dst text) is written correctly regardless of the OS locale.
@@ -1803,6 +2033,7 @@ def main(argv=None):
             "ERROR", "SYSTEM")
         log("the server may already be running; exiting.", "WARN", "SYSTEM")
         return
+    _server_ref = server
 
     exe = resolve_executable(_config["engine_path"])
     available = is_executable_available(exe)

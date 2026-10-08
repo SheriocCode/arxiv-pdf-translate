@@ -276,6 +276,27 @@
           </div>
         </div>
 
+        <h2 class="subhead">软件更新</h2>
+        <div class="field-row">
+          <label>版本</label>
+          <div class="field-control">
+            <div class="control-line">
+              <span id="appVersion" class="muted">-</span>
+              <button id="checkUpdateBtn" class="btn">检查更新</button>
+              <button id="applyUpdateBtn" class="btn primary" hidden>下载并更新</button>
+              <a id="installerLink" class="btn primary" hidden target="_blank" rel="noreferrer">下载最新安装包</a>
+            </div>
+            <div class="field-help" id="updateInfo"></div>
+          </div>
+        </div>
+        <div class="field-row" id="updateProgressRow" hidden>
+          <label>更新进度</label>
+          <div class="field-control">
+            <div class="update-bar"><div id="updateBar" class="update-bar-fill"></div></div>
+            <div class="field-help" id="updateStatus"></div>
+          </div>
+        </div>
+
         <h2 class="subhead">服务信息</h2>
         <dl class="kv" id="systemInfo"></dl>
       </section>

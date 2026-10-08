@@ -54,6 +54,10 @@
     createShortcut: $("createShortcut"), shortcutResult: $("shortcutResult"),
     stopService: $("stopService"), restartHint: $("restartHint"),
     systemInfo: $("systemInfo"),
+    appVersion: $("appVersion"), checkUpdateBtn: $("checkUpdateBtn"),
+    applyUpdateBtn: $("applyUpdateBtn"), installLink: $("installerLink"), updateInfo: $("updateInfo"),
+    updateProgressRow: $("updateProgressRow"), updateBar: $("updateBar"),
+    updateStatus: $("updateStatus"),
     toast: $("toast")
   };
 
@@ -72,6 +76,7 @@
   let logCatFilter = "ALL";
   let logSig = "";
   const logExpanded = {};
+  let currentAppVersion = "";
 
   /* -- helpers ----------------------------------------------------------- */
   function setResult(node, text, ok) {
@@ -729,6 +734,8 @@
     try {
       const info = await api("/system", { cache: "no-store" });
       projectRoot = info.project_root || "";
+      currentAppVersion = info.app_version || "";
+      el.appVersion.textContent = "v" + (currentAppVersion || "?");
       el.autostart.checked = !!info.autostart;
       el.autostart.disabled = !info.autostart_supported;
       el.autostartHelp.textContent = info.autostart_supported
@@ -805,6 +812,119 @@
     }, 400);
   }
 
+  /* -- update ------------------------------------------------------------ */
+  function setUpdateControls(busy) {
+    el.checkUpdateBtn.disabled = busy;
+    el.applyUpdateBtn.disabled = busy;
+  }
+
+  async function checkUpdate() {
+    setUpdateControls(true);
+    el.updateInfo.textContent = "检查中…";
+    el.applyUpdateBtn.hidden = true;
+    el.installLink.hidden = true;
+    try {
+      const info = await api("/update/check", { cache: "no-store" });
+      if (!info.ok) {
+        el.updateInfo.textContent = info.error || "检查失败";
+        return;
+      }
+      if (!info.has_update) {
+        el.updateInfo.textContent = "已是最新版本（v" + info.current + "）";
+        return;
+      }
+      if (info.channel === "patch") {
+        el.updateInfo.textContent = "发现新版本 v" + info.latest + "（补丁）"
+          + (info.notes ? " · " + info.notes : "");
+        el.applyUpdateBtn.hidden = false;
+        return;
+      }
+      if (info.requires_installer) {
+        el.updateInfo.textContent = "新版本 v" + info.latest
+          + " 需要重新安装（引擎已更新）。请下载最新安装包后覆盖安装。"
+          + (info.notes ? " · " + info.notes : "");
+        el.installLink.href = info.installer_url;
+        el.installLink.hidden = false;
+        return;
+      }
+      el.updateInfo.textContent = "发现新版本 v" + info.latest + "，但暂无可用的补丁或安装包。";
+    }
+    catch (err) {
+      el.updateInfo.textContent = "检查失败：" + err.message;
+    }
+    finally {
+      setUpdateControls(false);
+    }
+  }
+
+  async function applyUpdate() {
+    if (!window.confirm("下载并安装更新？安装过程中本机服务会重启。")) { return; }
+    setUpdateControls(true);
+    el.applyUpdateBtn.hidden = true;
+    el.updateProgressRow.hidden = false;
+    el.updateBar.style.width = "0%";
+    el.updateStatus.textContent = "准备下载…";
+    try {
+      const res = await api("/update/apply", { method: "POST" });
+      if (!res.ok) {
+        el.updateStatus.textContent = res.error || "启动更新失败";
+        setUpdateControls(false);
+        return;
+      }
+      pollUpdate();
+    }
+    catch (err) {
+      el.updateStatus.textContent = "启动更新失败：" + err.message;
+      setUpdateControls(false);
+    }
+  }
+
+  function pollUpdate() {
+    const timer = setInterval(async function () {
+      let state = null;
+      try { state = await api("/update/progress", { cache: "no-store" }); }
+      catch (err) { state = null; }
+      if (state) {
+        el.updateBar.style.width = (state.percent || 0) + "%";
+        el.updateStatus.textContent = state.message || state.state || "";
+        if (state.state === "error") {
+          clearInterval(timer);
+          el.updateStatus.textContent = "更新失败：" + (state.error || state.message || "");
+          el.applyUpdateBtn.hidden = false;
+          setUpdateControls(false);
+          return;
+        }
+        if (state.state === "ready" || state.state === "applying") {
+          clearInterval(timer);
+          waitReconnect(!!state.extension);
+          return;
+        }
+      }
+      else {
+        clearInterval(timer);
+        waitReconnect(false);
+      }
+    }, 800);
+  }
+
+  function waitReconnect(extensionUpdated) {
+    el.updateStatus.textContent = "正在重启服务…";
+    const timer = setInterval(async function () {
+      try {
+        await api("/health", { cache: "no-store" });
+      }
+      catch (err) {
+        return;
+      }
+      clearInterval(timer);
+      el.updateBar.style.width = "100%";
+      el.updateStatus.textContent = "更新完成 ✓" + (extensionUpdated
+        ? "（扩展文件已更新，请在 chrome://extensions 重新加载扩展）" : "");
+      showToast("更新完成");
+      setTimeout(function () { location.reload(); }, 1600);
+    }, 1500);
+  }
+
   /* -- init -------------------------------------------------------------- */
   function init() {
     fillLangs();
@@ -862,6 +982,8 @@
     el.autostart.addEventListener("change", toggleAutostart);
     el.createShortcut.addEventListener("click", doCreateShortcut);
     el.stopService.addEventListener("click", stopService);
+    el.checkUpdateBtn.addEventListener("click", checkUpdate);
+    el.applyUpdateBtn.addEventListener("click", applyUpdate);
     el.restartHint.addEventListener("click", function () {
       window.alert("在 Windows 任务栏右下角的托盘图标上右键 → “启动服务”，即可重新拉起本机服务。");
     });

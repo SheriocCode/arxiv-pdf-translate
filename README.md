@@ -131,6 +131,7 @@ ArxivPdfTranslate.exe --server   仅启动本机服务
 - **翻译记录**：本地缓存 PDF 的搜索、分组、打开 / 下载 / 删除（与控制台一致）；
 - **运行日志（trace）**：服务端按 `[时间] [级别] [类别] 消息` 结构化输出，前端渲染为类似 trace 的时间线——级别着色（错误/警告/成功/信息/调试）、类别标签（任务/引擎/缓存/存储/配置/系统…）、任务 ID 关联，支持按级别/类别筛选、搜索、跟随最新，并可一键清空日志。**只有带明细的事件才可展开**（如翻译时按页汇总的块识别 `src/dst/bbox`、引擎错误尾部），普通单行日志不套额外层。日志细粒度覆盖：启动/关闭、配置读写、每次任务的上传/缓存命中或未命中/引擎启动(pid)/逐页进度/块识别/退出码/耗时/结果落盘、存储与分组操作、标题补全、网络失败等。
 - **系统**：开机自启、创建桌面快捷方式、停止服务；
+- **软件更新**：显示当前版本，“检查更新”后如有新版本可“下载并更新”——服务端下载补丁/整包并做 sha256 校验，随后写一个重启脚本、退出、覆盖文件并重启，页面会显示进度并在重连后提示“更新完成”。更新只替换代码文件（`server/`、`server/web/`、`src/` 等），**不覆盖 `config.json` 与 `storage/`**；若本次更新含扩展文件，会提示到 `chrome://extensions` 重新加载扩展。
 - **扩展检测**：控制台会探测浏览器是否已安装本插件（通过固定的扩展 ID 探测资源）。浏览器插件是**可选的**翻译前端：页面顶部常驻一条极简状态行（小圆点 + “已安装 / 未安装”，未安装时附带安装路径与“复制扩展目录”），不弹窗、不阻塞。
 
 > 网页无法自行重新启动服务：停止后请用托盘图标“启动服务”重新拉起。
@@ -238,6 +239,9 @@ curl http://127.0.0.1:18760/health
 | GET      | `/web/*` `/icons/*`      | 控制台静态资源 / 图标                                |
 | GET      | `/system`                | 系统信息（平台、路径、自启状态、启动器）             |
 | GET      | `/logs`                  | 结构化日志条目（`?lines=1500`；每条含 时间/级别/类别/消息/任务ID） |
+| GET      | `/update/check`          | 检查更新（与 `update_url` 指向的清单比较）           |
+| POST     | `/update/apply`          | 下载补丁/整包 → sha256 校验 → 解压 → 写重启脚本并安排重启 |
+| GET      | `/update/progress`       | 更新进度/状态（轮询用）                              |
 | POST     | `/autostart`             | 开启/关闭开机自启 `{enabled}`                        |
 | POST     | `/shortcut`              | 创建桌面快捷方式                                     |
 | POST     | `/server/shutdown`       | 停止本机服务                                         |
@@ -260,6 +264,51 @@ curl http://127.0.0.1:18760/health
 查询参数：`source_lang`、`target_lang`、`service`、`output_variant`、`pages`、
 `threads`、`use_babeldoc`、`skip_subset_fonts`、`ignore_cache`、
 `formula_font_regex`、`prompt`、`extra_args`、`filename`、`source_url`。
+
+## 更新与发布
+
+分发形态：**一个安装包 `ArxivPdfTranslate-Setup-vX.exe`**（内置引擎，用户双击按向导安装到
+可写目录），以及**代码补丁 `*-patch-from-<上一版>.zip`**。**引擎只随安装包分发一份**，不出现在补丁里。
+
+更新基于一个**固定 URL 的清单** `update.json`（默认指向仓库 `main` 分支，可用配置项
+`update_url` 覆盖）。客户端「检查更新」读取它并与本地版本比较：
+
+```json
+{
+  "version": "0.5.0",
+  "engine_version": "0.1.0",
+  "notes": "本次更新说明",
+  "installer": { "url": ".../ArxivPdfTranslate-Setup-v0.5.0.exe" },
+  "patch": { "from": "0.4.1", "url": ".../v0.5.0-patch-from-0.4.1.zip", "sha256": "..." }
+}
+```
+
+判定规则：
+- 本地 `APP_VERSION` == `version` → 已是最新。
+- 本地引擎版本（`engine/VERSION`）≠ `engine_version` → 说明**本次更新改了引擎**，补丁不可用，
+  界面提示 **“下载最新安装包”**（用 `installer.url`）。
+- 引擎版本匹配且本地版本 == `patch.from` → 下载**补丁**并自动更新。
+- 其它（跨多版）→ 同样走安装包。
+
+补丁 zip 的根即项目相对路径（如 `server/server.py`、`server/web/console.js`、`src/…`）；
+可含 `patch.json`，其 `delete` 列出需要删除的文件。
+
+**更新流程**：控制台「系统 → 软件更新」→ 服务端下载补丁并 sha256 校验 → 解压到临时目录 →
+写 `%TEMP%\at-update\apply.bat` → 服务退出 → 脚本等待端口释放后用 robocopy 覆盖项目并重启服务
+（`launcher\ArxivPdfTranslate.exe --server`）。页面轮询检测到重启后提示“更新完成”。需要重装时则显示
+“下载最新安装包”按钮。
+
+**发布（本地一键）**：一次性准备——MinGW-w64 的 `gcc`、Inno Setup 6、GitHub CLI（`gh auth login`）；
+发版前把 `server/server.py` 的 `APP_VERSION` 改到本次版本，引擎有改动时更新 `engine/VERSION`。然后：
+
+```powershell
+powershell -File tools/publish.ps1 -Version 0.5.0 -Notes "本次更新说明"
+```
+
+脚本会：`tools/build-release.ps1` 产出 payload 与代码补丁 → Inno 生成 `ArxivPdfTranslate-Setup-vX.exe`
+→ 打 tag 并推送 → 用 `gh` 创建/更新 Release 并上传 `Setup.exe`/`patch.zip`/`SHA256SUMS` →
+写入 `update.json` 并推回默认分支。**引擎只随安装包分发一份，补丁只含代码；引擎有变则提示用户重下安装包。**
+
 
 ## 故障排查
 

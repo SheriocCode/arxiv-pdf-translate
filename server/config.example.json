@@ -14,5 +14,6 @@
   "extra_args": "",
   "timeout": 3600,
   "keep_temp": false,
-  "verbose": false
+  "verbose": false,
+  "update_url": "https://raw.githubusercontent.com/SheriocCode/arxiv-pdf-translate/main/update.json"
 }

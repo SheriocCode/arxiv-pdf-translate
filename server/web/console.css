@@ -160,6 +160,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   font: inherit; font-weight: 500; cursor: pointer; white-space: nowrap;
 }
 .btn:hover { border-color: var(--accent); color: var(--accent); }
+a.btn { text-decoration: none; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
 .btn.danger:hover { border-color: var(--err); color: var(--err); }
@@ -319,6 +320,15 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px 14px; margin: 0; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; word-break: break-all; }
+
+.update-bar {
+  height: 6px; max-width: 420px; width: 100%;
+  background: var(--line); border-radius: 3px; overflow: hidden;
+}
+.update-bar-fill {
+  height: 100%; width: 0; background: var(--accent);
+  border-radius: 3px; transition: width .25s ease;
+}
 
 /* -- toast --------------------------------------------------------------- */
 .toast {
