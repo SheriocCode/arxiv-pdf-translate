@@ -146,3 +146,54 @@ git push origin $Branch
 Assert-Ok "git push manifest"
 
 Write-Host "published $tag" -ForegroundColor Green
+
+# ---- 8. docs site sync reminder --------------------------------------------
+$siteDir = Join-Path $root "site"
+$docsDir = Join-Path $root "docs"
+if (Test-Path $siteDir) {
+    Write-Host ""
+    Write-Host "Docs site check (site/ -> docs/):" -ForegroundColor Cyan
+    $stale = $false
+
+    if (Test-Path $docsDir) {
+        Get-ChildItem $siteDir -File -Filter *.md |
+            Where-Object { $_.Name -notmatch '^(_|DESIGN)' } |
+            ForEach-Object {
+                $out = Join-Path $docsDir ($_.BaseName + ".html")
+                if (-not (Test-Path $out)) {
+                    Write-Warning "missing docs/$($_.BaseName).html; run tools/build-docs.ps1"
+                    $stale = $true
+                }
+            }
+
+        $siteNew = Get-ChildItem $siteDir -Recurse -File |
+            Where-Object { $_.FullName -notmatch '_site' -and $_.FullName -notmatch 'jekyll-cache' } |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        $docsNew = Get-ChildItem $docsDir -Recurse -File |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($siteNew -and $docsNew -and ($siteNew.LastWriteTime -gt $docsNew.LastWriteTime)) {
+            Write-Warning "docs/ looks older than site/; run tools/build-docs.ps1"
+            $stale = $true
+        }
+    }
+
+    $changeLog = Join-Path $siteDir "changelog.md"
+    if ((Test-Path $changeLog) -and -not (Select-String -Path $changeLog -SimpleMatch $Version -Quiet)) {
+        Write-Warning "site/changelog.md has no entry for $Version; add a changelog line"
+        $stale = $true
+    }
+
+    $dirty = @(git status --porcelain -- site docs)
+    if ($dirty.Count -gt 0) {
+        Write-Warning "site/ or docs/ has uncommitted changes; commit and push:"
+        $dirty | ForEach-Object { Write-Host "    $_" }
+        $stale = $true
+    }
+
+    Write-Host "Post-release checklist:" -ForegroundColor Cyan
+    Write-Host "  [ ] update site/changelog.md (and home page if needed)"
+    Write-Host "  [ ] powershell -File tools/build-docs.ps1"
+    Write-Host "  [ ] git add site docs && git commit && git push origin $Branch"
+    if ($stale) { Write-Host "    (items above still pending)" -ForegroundColor Yellow }
+}
+
