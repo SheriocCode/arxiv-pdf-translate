@@ -19,6 +19,7 @@
     <nav class="site-nav">
       <a href="index.html">首页</a>
       <a href="guide.html" class="active">文档</a>
+      <a href="reference.html">参考</a>
       <a href="changelog.html">更新日志</a>
       <a href="https://github.com/SheriocCode/arxiv-pdf-translate" target="_blank" rel="noopener">GitHub</a>
       <a class="btn primary" href="https://github.com/SheriocCode/arxiv-pdf-translate/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -46,8 +47,8 @@
 <p>最快的方式是使用 Windows 安装包（内置精简翻译引擎）：</p>
 
 <ol>
-  <li>到 <a href="https://github.com/SheriocCode/arxiv-pdf-translate/releases/latest">Releases</a> 下载 <code class="language-plaintext highlighter-rouge">ArxivPdfTranslate-Setup-vX.exe</code>，双击按向导安装到可写目录。</li>
-  <li>安装后运行托盘程序 <code class="language-plaintext highlighter-rouge">ArxivPdfTranslate.exe</code>：托盘出现图标、自动启动本机服务，并在浏览器打开本机控制台。</li>
+  <li>在<a href="https://github.com/SheriocCode/arxiv-pdf-translate/releases/latest">下载页</a>获取 <code class="language-plaintext highlighter-rouge">ArxivPdfTranslate-Setup-vX.exe</code>，双击按向导安装到可写目录。</li>
+  <li>运行托盘程序 <code class="language-plaintext highlighter-rouge">ArxivPdfTranslate.exe</code>：托盘出现图标、自动启动本机服务，并在浏览器打开本机控制台。</li>
   <li>加载浏览器扩展（见 <a href="#extension">安装扩展</a>）。</li>
 </ol>
 
@@ -67,11 +68,16 @@
   <li>离线资源只保留简体中文/通用拉丁字体与版面模型，如需繁体或日/韩目标，首次使用会自动联网下载对应字体。</li>
 </ul>
 
-<p>如果引擎不在默认位置，在 <code class="language-plaintext highlighter-rouge">config.json</code> 里设置 <code class="language-plaintext highlighter-rouge">engine_path</code>：留空为自动探测项目内 <code class="language-plaintext highlighter-rouge">engine/</code>；填相对路径会依次相对 <code class="language-plaintext highlighter-rouge">server/</code>、项目根、当前目录解析。</p>
+<p>如果引擎不在默认位置，在 <code class="language-plaintext highlighter-rouge">config.json</code> 里设置 <code class="language-plaintext highlighter-rouge">engine_path</code>：</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">""</code>（默认）：自动探测项目内 <code class="language-plaintext highlighter-rouge">engine/</code>；</li>
+  <li>相对或绝对路径：相对路径会依次相对 <code class="language-plaintext highlighter-rouge">server/</code>、项目根、当前目录解析。</li>
+</ul>
 
 <h2 id="service">启动本机服务</h2>
 
-<p>从源码运行时（需要 Python 标准库即可，服务本身零第三方依赖）：</p>
+<p>从源码运行时（服务本身只用 Python 标准库，零第三方依赖）：</p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>cd server
 copy config.example.json config.json   # 然后编辑 config.json
@@ -88,13 +94,16 @@ python server.py
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl http://127.0.0.1:18760/health
 </code></pre></div></div>
 
+<p>也可用环境变量覆盖：<code class="language-plaintext highlighter-rouge">ENGINE_PATH</code>、<code class="language-plaintext highlighter-rouge">OPENAI_BASE_URL</code>、<code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code>、<code class="language-plaintext highlighter-rouge">OPENAI_MODEL</code>、<code class="language-plaintext highlighter-rouge">ENGINE_PORT</code>。</p>
+
 <h3 id="section">一键启动（托盘程序）</h3>
 
-<p><code class="language-plaintext highlighter-rouge">launcher/ArxivPdfTranslate.exe</code> 是原生 Win32 单文件程序，不依赖 .NET 或任何第三方运行时。双击即启动托盘控制程序。</p>
+<p><code class="language-plaintext highlighter-rouge">launcher/ArxivPdfTranslate.exe</code> 是<strong>原生 Win32 单文件</strong>，不依赖 .NET 或任何第三方运行时（只用 Windows 自带系统 DLL）。双击即启动托盘控制程序。</p>
 
 <ul>
-  <li>悬停图标显示 <strong>在线 / 未启动</strong>；左键单击打开控制台，右键单击弹出菜单。</li>
-  <li>菜单项：打开控制台、启动/停止服务、开机自启、创建桌面快捷方式、退出。</li>
+  <li>悬停图标：显示 <strong>在线 / 未启动</strong>；</li>
+  <li><strong>左键单击</strong>：打开控制台；<strong>右键单击</strong>：弹出菜单；</li>
+  <li>菜单项：打开控制台、启动 / 停止服务（停止走 <code class="language-plaintext highlighter-rouge">/server/shutdown</code> 优雅退出）、开机自启（勾选开关，可取消；以 <code class="language-plaintext highlighter-rouge">--tray</code> 静默启动）、创建桌面快捷方式、退出（退出即停止服务）。</li>
 </ul>
 
 <p>命令行参数：</p>
@@ -104,21 +113,32 @@ ArxivPdfTranslate.exe --tray     仅托盘（用于开机自启，不打开浏�
 ArxivPdfTranslate.exe --server   仅启动本机服务
 </code></pre></div></div>
 
+<p>单实例：重复双击不会重复启动，而是唤起已有实例打开控制台。</p>
+
+<blockquote>
+  <p>从源码重建该 exe <strong>仅构建时</strong>需要 MinGW-w64 的 <code class="language-plaintext highlighter-rouge">gcc</code>，产物本身无依赖：<code class="language-plaintext highlighter-rouge">launcher\build-native-launcher.bat</code>。</p>
+</blockquote>
+
 <h2 id="console">本机控制台</h2>
 
-<p>服务启动后访问 <code class="language-plaintext highlighter-rouge">http://127.0.0.1:18760/</code>，把配置、记录与系统控制集中到一处：</p>
+<p>服务启动后访问 <code class="language-plaintext highlighter-rouge">http://127.0.0.1:18760/</code>（也可用托盘或扩展入口打开），把配置、记录与系统控制集中到一处：</p>
 
 <ul>
   <li><strong>概览</strong>：服务、引擎、版本、端口状态。</li>
-  <li><strong>翻译设置</strong>：模型接口（地址 / 模型 / 密钥）、源/目标语言、导出格式、线程数、引擎路径、超时等，写入 <code class="language-plaintext highlighter-rouge">server/config.json</code>；扩展会自动采纳这里的默认值。</li>
+  <li><strong>翻译设置</strong>：模型接口（地址 / 模型 / 密钥）、源/目标语言、导出格式、线程数、引擎路径、超时等，写入 <code class="language-plaintext highlighter-rouge">server/config.json</code>；扩展会自动采纳这里改动的默认值。</li>
   <li><strong>翻译记录</strong>：本地缓存 PDF 的搜索、分组、打开 / 下载 / 删除。</li>
-  <li><strong>运行日志</strong>：按 <code class="language-plaintext highlighter-rouge">[时间] [级别] [类别] 消息</code> 结构化输出的时间线，支持级别/类别筛选、搜索、跟随最新与清空。</li>
+  <li><strong>运行日志（trace）</strong>：服务端按 <code class="language-plaintext highlighter-rouge">[时间] [级别] [类别] 消息</code> 结构化输出，前端渲染成时间线——级别着色（错误/警告/成功/信息/调试）、类别标签（任务/引擎/缓存/存储/配置/系统…）、任务 ID 关联，支持按级别/类别筛选、搜索、跟随最新、一键清空。覆盖启动/关闭、配置读写、每次任务的上传/缓存命中或未命中、引擎启动(pid)、逐页进度、块识别、退出码、耗时、结果落盘、存储与分组、标题补全、网络失败等。</li>
   <li><strong>系统</strong>：开机自启、创建桌面快捷方式、停止服务。</li>
-  <li><strong>软件更新</strong>：检查更新、下载并更新（详见 <a href="changelog.html">更新日志</a>）。</li>
+  <li><strong>软件更新</strong>：显示当前版本，「检查更新」后如有新版本可「下载并更新」——服务端下载补丁/整包并做 sha256 校验，随后写重启脚本、退出、覆盖文件并重启，页面显示进度并在重连后提示「更新完成」。更新只替换代码文件（<code class="language-plaintext highlighter-rouge">server/</code>、<code class="language-plaintext highlighter-rouge">server/web/</code>、<code class="language-plaintext highlighter-rouge">src/</code> 等），<strong>不覆盖 <code class="language-plaintext highlighter-rouge">config.json</code> 与 <code class="language-plaintext highlighter-rouge">storage/</code></strong>；若含扩展文件会提示到 <code class="language-plaintext highlighter-rouge">chrome://extensions</code> 重新加载。</li>
+  <li><strong>扩展检测</strong>：控制台会探测浏览器是否已安装本插件（通过固定扩展 ID）。页面顶部常驻一条极简状态行（小圆点 + 「已安装 / 未安装」，未安装时给出安装路径与「复制扩展目录」）。</li>
 </ul>
 
 <blockquote>
   <p>网页无法自行重新启动服务：停止后请用托盘图标「启动服务」重新拉起。</p>
+</blockquote>
+
+<blockquote>
+  <p>扩展弹窗底部的 <strong>设置</strong> 直接打开该控制台；服务未启动时，弹窗内会显示「连接本机服务」面板（可改服务地址、重试或打开控制台）。模型接口等均写入 <code class="language-plaintext highlighter-rouge">server/config.json</code>（密钥只显示为掩码，清除密钥有单独按钮）。</p>
 </blockquote>
 
 <h2 id="extension">安装扩展</h2>
@@ -129,7 +149,7 @@ ArxivPdfTranslate.exe --server   仅启动本机服务
   <li>点击「加载已解压的扩展程序」，选择项目目录 <code class="language-plaintext highlighter-rouge">arxiv-pdf-translate/</code>（或先运行 <code class="language-plaintext highlighter-rouge">.\build.ps1</code> 打包再解压加载）。</li>
 </ol>
 
-<p>控制台会自动检测扩展是否已安装。扩展固定 ID 为 <code class="language-plaintext highlighter-rouge">ajabefplecofaoccaobofemmdcjdfala</code>。若是从旧版本升级，固定 ID 后浏览器可能视为新扩展，需移除旧的再重新加载一次。</p>
+<p>控制台会自动检测扩展是否已安装。扩展固定 ID 为 <code class="language-plaintext highlighter-rouge">ajabefplecofaoccaobofemmdcjdfala</code>（由 <code class="language-plaintext highlighter-rouge">manifest.json</code> 的 <code class="language-plaintext highlighter-rouge">key</code> 决定）。若是从旧版本「加载已解压」升级，固定 ID 后浏览器可能视为新扩展，需移除旧的再重新加载一次。</p>
 
 <blockquote>
   <p>本地 PDF 需要在扩展详情页开启「允许访问文件网址」。</p>
@@ -137,26 +157,39 @@ ArxivPdfTranslate.exe --server   仅启动本机服务
 
 <h2 id="usage">使用</h2>
 
-<p>打开 arXiv PDF（如 <code class="language-plaintext highlighter-rouge">arxiv.org/pdf/...</code>）不会自动跳转，点击工具栏扩展图标即可：</p>
+<p>打开 arXiv PDF（如 <code class="language-plaintext highlighter-rouge">arxiv.org/pdf/...</code>）不会自动跳转，点击浏览器工具栏上的扩展图标即可：</p>
 
 <ol>
-  <li>弹出<strong>翻译选项</strong>面板：源 → 目标语言、翻译范围。</li>
-  <li>点击 <strong>开始翻译</strong> → 在新标签打开翻译视图，本机引擎生成译文，可 <strong>保存 PDF</strong>。
+  <li>弹出<strong>翻译选项</strong>面板：源 → 目标语言、翻译范围（导出格式在翻译视图里选、线程在控制台改）。</li>
+  <li>点击 <strong>开始翻译</strong> → 在新标签打开翻译视图，本机引擎生成译文，可 <strong>保存 PDF</strong> 或在新标签打开原文/译文。
     <ul>
-      <li>左右对照、逐页实时追页；每页译完原地替换。</li>
-      <li>工具栏提供页码跳转与缩放（也可 <strong>Ctrl + 滚轮</strong>）。</li>
-      <li><strong>原文 / 译文 / 对比</strong>三种视图随时切换。</li>
-      <li><strong>块框</strong>开关叠加段落块矩形，悬停显示「原文 → 译文」。</li>
+      <li><strong>左右对照、实时追页</strong>：左侧立即显示原文全篇；右侧先按原文页数铺好等高「翻译中…」占位页，每页译完原地替换（标题栏显示「已翻译 k/N 页」），版面稳定不抖动、同一滚动区天然对齐。</li>
+      <li><strong>页码 / 缩放</strong>：工具栏 <code class="language-plaintext highlighter-rouge">‹ 页码/N ›</code> 跳页与 <code class="language-plaintext highlighter-rouge">− 100% +</code> 缩放（也可 <strong>Ctrl + 滚轮</strong>）；窗口尺寸变化自动适配宽度。</li>
+      <li><strong>逐页进度</strong>：未开始显示「排队中…」，翻译中的页显示「翻译中…」加进度条（按该页已译段落比例推进），译完即替换。</li>
+      <li><strong>视图切换</strong>：<strong>原文 / 译文 / 对比</strong>三种随时切换，不影响正在跑的翻译。</li>
+      <li><strong>块框（段落级）</strong>：工具栏 <strong>块框</strong> 开关在原文页叠加每个段落块的矩形，<strong>悬停</strong>显示该块「原文 → 译文」（数据来自 <code class="language-plaintext highlighter-rouge">/jobs/&lt;id&gt;/blocks</code>）。</li>
+      <li><strong>工具栏进度条</strong>：工具栏底边 2px 的页级进度条随已完成页数推进。</li>
     </ul>
   </li>
   <li>面板底部的 <strong>设置</strong> 打开本机统一控制台。</li>
 </ol>
 
-<p>其它入口：任意 PDF 链接可右键「Translate link with the local engine」；本地 PDF 先开启文件访问权限再用右键菜单或工具栏图标。</p>
+<p>其它入口：</p>
+
+<ul>
+  <li><strong>任意 PDF 链接</strong>：右键 → 「Translate link with the local engine」（立即翻译）。</li>
+  <li><strong>本地 PDF</strong>：先在扩展详情页开启「允许访问文件网址」，再用右键菜单或工具栏图标。</li>
+</ul>
+
+<blockquote>
+  <p>Chrome 自带的 PDF 阅读器是浏览器内部页面，扩展无法往里注入页面内按钮；因此采用「工具栏图标 + 弹出翻译选项」的方式，而不是改写 PDF 页面。</p>
+</blockquote>
+
+<p>译文由本机翻译引擎生成，不上传任何云端服务（除你配置的翻译模型 API）。</p>
 
 <h2 id="config">配置项</h2>
 
-<p>以下设置统一在本机控制台中修改。关键字段（<code class="language-plaintext highlighter-rouge">server/config.json</code>）：</p>
+<p>以下设置统一在本机控制台 <code class="language-plaintext highlighter-rouge">http://127.0.0.1:18760/</code> 中修改。关键字段（<code class="language-plaintext highlighter-rouge">server/config.json</code>）：</p>
 
 <div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
   </span><span class="nl">"port"</span><span class="p">:</span><span class="w"> </span><span class="mi">18760</span><span class="p">,</span><span class="w">
@@ -204,16 +237,18 @@ ArxivPdfTranslate.exe --server   仅启动本机服务
   </tbody>
 </table>
 
-<p>也可用环境变量覆盖：<code class="language-plaintext highlighter-rouge">ENGINE_PATH</code>、<code class="language-plaintext highlighter-rouge">OPENAI_BASE_URL</code>、<code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code>、<code class="language-plaintext highlighter-rouge">OPENAI_MODEL</code>、<code class="language-plaintext highlighter-rouge">ENGINE_PORT</code>。</p>
+<p>环境变量可覆盖：<code class="language-plaintext highlighter-rouge">ENGINE_PATH</code>、<code class="language-plaintext highlighter-rouge">OPENAI_BASE_URL</code>、<code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code>、<code class="language-plaintext highlighter-rouge">OPENAI_MODEL</code>、<code class="language-plaintext highlighter-rouge">ENGINE_PORT</code>。</p>
 
 <h2 id="storage">翻译记录与缓存</h2>
 
 <p>翻译成功的 PDF 写入项目 <code class="language-plaintext highlighter-rouge">storage/</code>（内容+参数寻址），并在 <code class="language-plaintext highlighter-rouge">storage/index.json</code> 记录来源、语言、输出类型、大小、时间等。</p>
 
 <ul>
-  <li>同一份 PDF + 相同参数再次翻译直接返回缓存；可在翻译选项里勾选「忽略缓存，强制重新翻译」绕过。</li>
-  <li>控制台「翻译记录」含首页缩略图、自动识别的论文标题、文件名、语言/输出/大小/时间与来源链接，可打开 / 下载 / 删除。</li>
-  <li>支持按标题 / 文件名 / 链接搜索，以及自定义分组。</li>
+  <li>对<strong>同一份 PDF + 相同参数</strong>再次翻译时，服务直接返回缓存，不再调用引擎/模型；在翻译选项里勾选「忽略缓存，强制重新翻译」可绕过。</li>
+  <li>控制台「翻译记录」每条含<strong>首页缩略图</strong>、自动识别的<strong>论文标题</strong>、文件名、语言/输出/大小/时间、来源链接，可<strong>打开 / 下载 / 删除</strong>。</li>
+  <li><strong>搜索与分组</strong>：顶部搜索框按标题 / 文件名 / 链接过滤；下拉按分组筛选（全部 / 未分组 / 自定义）；「新建分组」创建分类，每条右侧下拉归类；选中分组可「删除分组」（组内记录变为未分组）。</li>
+  <li><strong>标题</strong>：对 arXiv 链接通过 <code class="language-plaintext highlighter-rouge">export.arxiv.org</code> API 获取；其它链接尝试读取网页的 <code class="language-plaintext highlighter-rouge">citation_title</code>；老记录会在服务启动时后台补全。</li>
+  <li><strong>缩略图</strong>：由 <code class="language-plaintext highlighter-rouge">server/make_thumb.py</code> 用 PyMuPDF 渲染首页（<code class="language-plaintext highlighter-rouge">storage/&lt;id&gt;.thumb.png</code>），失败则该项不显示缩略图。</li>
   <li>直接删除 <code class="language-plaintext highlighter-rouge">storage/</code> 目录即可清空全部缓存。</li>
 </ul>
 
