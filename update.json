@@ -1,13 +1,8 @@
-{
-  "version": "0.5.0",
-  "engine_version": "0.1.0",
-  "notes": "示例更新清单；发布时由 CI 覆盖或作为 release 资产。补丁仅在 patch.from 等于用户当前版本且本地引擎版本等于 engine_version 时可用，否则提示下载最新安装包。",
-  "installer": {
-    "url": "https://github.com/SheriocCode/arxiv-pdf-translate/releases/download/v0.5.0/ArxivPdfTranslate-Setup-v0.5.0.exe"
-  },
-  "patch": {
-    "from": "0.4.1",
-    "url": "https://github.com/SheriocCode/arxiv-pdf-translate/releases/download/v0.5.0/arxiv-pdf-translate-v0.5.0-patch-from-0.4.1.zip",
-    "sha256": ""
-  }
+﻿{
+    "version":  "0.5.0",
+    "engine_version":  "0.1.0",
+    "notes":  "Initial Publish",
+    "installer":  {
+                      "url":  "https://github.com/SheriocCode/arxiv-pdf-translate/releases/download/v0.5.0/ArxivPdfTranslate-Setup-v0.5.0.exe"
+                  }
 }
