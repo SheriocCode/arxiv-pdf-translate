@@ -1,0 +1,43 @@
+---
+layout: default
+---
+<section class="hero container">
+  <span class="badge">{{ page.badge }}</span>
+  <h1>{{ page.hero }}</h1>
+  <p class="lead">{{ page.lead }}</p>
+  <div class="btn-row">
+    <a class="btn primary" href="https://github.com/SheriocCode/arxiv-pdf-translate/releases/latest" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      下载安装包
+    </a>
+    <a class="btn" href="guide.html">阅读文档 →</a>
+  </div>
+</section>
+
+<section class="tui">
+  <div class="tui-grid">
+    <div class="tui-text">
+      <img class="wordmark" src="assets/img/arxiv_pdf_translate.svg" alt="Arxiv PDF Translate">
+      <div class="prompt">
+        <span class="dim">$</span> ArxivPdfTranslate.exe --server<br>
+        <span class="dim">[INFO] project root</span>  E:\arxiv-pdf-translate<br>
+        <span class="dim">[INFO] engine</span>        engine/ArxivTranslateEngine.exe<br>
+        <span class="dim">[INFO] listening on</span>  http://127.0.0.1:18760<br>
+        <span class="dim">[INFO] translate</span>     arxiv.org/pdf/2501.00001  en → zh-CN<br>
+        <span style="color:var(--success)">[DONE]</span> 68/68 pages  ▸  bilingual PDF ready
+      </div>
+      <div class="hints"><b>原文 / 译文 / 对比</b> 切换视图 &nbsp;·&nbsp; <b>块框</b> 段落级溯源 &nbsp;·&nbsp; <b>Ctrl + 滚轮</b> 缩放</div>
+    </div>
+    {% if page.shots %}
+    <div class="carousel">
+      {% for shot in page.shots %}
+      <figure><img src="{{ shot.src }}" alt="{{ shot.caption }}"><figcaption>{{ shot.caption }}</figcaption></figure>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+<div class="container home-content">
+{{ content }}
+</div>

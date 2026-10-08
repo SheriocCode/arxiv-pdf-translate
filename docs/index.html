@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arxiv PDF Translate — 在浏览器里翻译 arXiv 论文</title>
+<meta name="description" content="在浏览器里翻译 arXiv 论文 PDF 与本地 PDF，全程在本机完成。Chrome/Edge 扩展 + 本机翻译引擎 + Win32 托盘启动器。">
+<link rel="icon" href="assets/img/icon128.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="index.html"><img class="mark" src="assets/img/logo.svg" alt=""><img class="word" src="assets/img/arxiv_pdf_translate_black.svg" alt="Arxiv PDF Translate"></a>
+    <nav class="site-nav">
+      <a href="index.html" class="active">首页</a>
+      <a href="guide.html">文档</a>
+      <a href="changelog.html">更新日志</a>
+      <a href="https://github.com/SheriocCode/arxiv-pdf-translate" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn primary" href="https://github.com/SheriocCode/arxiv-pdf-translate/releases/latest" target="_blank" rel="noopener">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<section class="hero container">
+  <span class="badge">自主·透明</span>
+  <h1>在浏览器里翻译 arXiv 论文</h1>
+  <p class="lead">翻 arXiv 论文 PDF 与本地 PDF，左右对照、逐页实时生成译文。全程在本机完成——译文不经过任何云端，只调用你自己配置的翻译模型。</p>
+  <div class="btn-row">
+    <a class="btn primary" href="https://github.com/SheriocCode/arxiv-pdf-translate/releases/latest" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      下载安装包
+    </a>
+    <a class="btn" href="guide.html">阅读文档 →</a>
+  </div>
+</section>
+
+<section class="tui">
+  <div class="tui-grid">
+    <div class="tui-text">
+      <img class="wordmark" src="assets/img/arxiv_pdf_translate.svg" alt="Arxiv PDF Translate">
+      <div class="prompt">
+        <span class="dim">$</span> ArxivPdfTranslate.exe --server<br>
+        <span class="dim">[INFO] project root</span>  E:\arxiv-pdf-translate<br>
+        <span class="dim">[INFO] engine</span>        engine/ArxivTranslateEngine.exe<br>
+        <span class="dim">[INFO] listening on</span>  http://127.0.0.1:18760<br>
+        <span class="dim">[INFO] translate</span>     arxiv.org/pdf/2501.00001  en → zh-CN<br>
+        <span style="color:var(--success)">[DONE]</span> 68/68 pages  ▸  bilingual PDF ready
+      </div>
+      <div class="hints"><b>原文 / 译文 / 对比</b> 切换视图 &nbsp;·&nbsp; <b>块框</b> 段落级溯源 &nbsp;·&nbsp; <b>Ctrl + 滚轮</b> 缩放</div>
+    </div>
+    
+    <div class="carousel">
+      
+      <figure><img src="assets/index/translate_view.png" alt="翻译界面"><figcaption>翻译界面</figcaption></figure>
+      
+      <figure><img src="assets/index/log.png" alt="运行日志"><figcaption>运行日志</figcaption></figure>
+      
+      <figure><img src="assets/index/pop.png" alt="插件&系统设置"><figcaption>插件&系统设置</figcaption></figure>
+      
+    </div>
+    
+  </div>
+</section>
+
+<div class="container home-content">
+<h1 id="section">核心特点</h1>
+
+<ul>
+  <li><strong>左右对照</strong> — 左侧立即显示原文全篇，右侧按页铺好占位页，每页译完原地替换，版面稳定不抖动。</li>
+  <li><strong>全程本机</strong> — 扩展取回 PDF、本机引擎解析翻译，只调用你配置的模型 API，其余数据不出本机。</li>
+  <li><strong>段落块框</strong> — 工具栏「块框」在原文页叠加每个段落块的矩形，悬停显示「原文 → 译文」，逐段核对。</li>
+  <li><strong>缓存与记录</strong> — 相同 PDF 与参数再次翻译直接命中本地缓存；记录带首页缩略图、自动标题、搜索与分组。</li>
+  <li><strong>统一控制台</strong> — 模型接口、语言、线程、缓存记录、结构化日志、开机自启与软件更新集中在 127.0.0.1:18760。</li>
+  <li><strong>托盘自启</strong> — 原生 Win32 单文件托盘程序，无 .NET / VC 运行库依赖；双击即启动服务并打开控制台。</li>
+</ul>
+
+<h1 id="section-1">下载</h1>
+<ul>
+  <li><strong>Windows 安装包</strong> — 双击向导安装，开箱即用。<a href="https://github.com/SheriocCode/arxiv-pdf-translate/releases/latest">前往 Releases →</a></li>
+</ul>
+
+<ol>
+  <li><strong>安装并启动本机服务</strong> 下载并运行 <code class="language-plaintext highlighter-rouge">ArxivPdfTranslate-Setup-vX.exe</code>（内置翻译引擎）。</li>
+  <li><strong>加载浏览器扩展</strong> 打开 <code class="language-plaintext highlighter-rouge">chrome://extensions</code> → 开发者模式 → 加载已解压的扩展程序 → 选择项目目录 <code class="language-plaintext highlighter-rouge">arxiv-pdf-translate/</code>。</li>
+  <li><strong>配置模型并翻译</strong> 在控制台「翻译设置 → 模型接口」填写模型名称与 API 密钥并保存；打开 arXiv PDF，点扩展图标 →「开始翻译」。</li>
+</ol>
+
+<ul>
+  <li><strong>源码（开发者）</strong> — 自定构建，克隆仓库后 <code class="language-plaintext highlighter-rouge">.\build.ps1</code> 打包扩展，<code class="language-plaintext highlighter-rouge">python server/server.py</code> 启动服务。<a href="https://github.com/SheriocCode/arxiv-pdf-translate">查看仓库 →</a></li>
+</ul>
+
+</div>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div>©2026 Arxiv PDF Translate · 本机翻译，用你自己的模型</div>
+    <div>
+      <a href="https://github.com/SheriocCode/arxiv-pdf-translate" target="_blank" rel="noopener">GitHub</a> ·
+      <a href="guide.html">文档</a> ·
+      <a href="changelog.html">更新日志</a>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/carousel.js" defer></script>
+
+</body>
+</html>

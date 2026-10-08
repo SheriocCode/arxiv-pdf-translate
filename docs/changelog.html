@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>更新日志 — Arxiv PDF Translate</title>
+<meta name="description" content="Arxiv PDF Translate 版本更新历史。">
+<link rel="icon" href="assets/img/icon128.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="index.html"><img class="mark" src="assets/img/logo.svg" alt=""><img class="word" src="assets/img/arxiv_pdf_translate_black.svg" alt="Arxiv PDF Translate"></a>
+    <nav class="site-nav">
+      <a href="index.html">首页</a>
+      <a href="guide.html">文档</a>
+      <a href="changelog.html" class="active">更新日志</a>
+      <a href="https://github.com/SheriocCode/arxiv-pdf-translate" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn primary" href="https://github.com/SheriocCode/arxiv-pdf-translate/releases/latest" target="_blank" rel="noopener">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="container page-body">
+<h1 id="section">更新日志</h1>
+
+<p>全部版本见 <a href="https://github.com/SheriocCode/arxiv-pdf-translate/releases">GitHub Releases</a>。</p>
+
+<h2 id="v051">v0.5.1</h2>
+
+<p>2026-10-08 · patch</p>
+
+<ul>
+  <li>首次使用时加入引导教程（driver.js），帮助新用户快速上手。</li>
+  <li>更新清单改为无 BOM 的 UTF-8，并容忍读取带 BOM 的清单。</li>
+</ul>
+
+<h2 id="v050">v0.5.0</h2>
+
+<p>2026-10-08 · feature</p>
+
+<ul>
+  <li>首个正式发布：Chrome / Edge 扩展 + 本机伴生服务 。</li>
+  <li>本地一键发布流程（<code class="language-plaintext highlighter-rouge">tools/publish.ps1</code>）与 Inno Setup 安装包。</li>
+  <li>原生 Win32 托盘启动器与统一网页控制台，移除 .NET/WPF 依赖。</li>
+  <li>左右对照实时预览、逐页进度、块框段落级溯源与缩放按视口重绘。</li>
+  <li>翻译缓存、记录分组、结构化运行日志与在线更新。</li>
+</ul>
+
+</div>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div>©2026 Arxiv PDF Translate · 本机翻译，用你自己的模型</div>
+    <div>
+      <a href="https://github.com/SheriocCode/arxiv-pdf-translate" target="_blank" rel="noopener">GitHub</a> ·
+      <a href="guide.html">文档</a> ·
+      <a href="changelog.html">更新日志</a>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/carousel.js" defer></script>
+
+</body>
+</html>
