@@ -120,7 +120,8 @@ if ($PrevTag -ne "") {
     }
     $deleteList = @($deleted | ForEach-Object { ($_ -replace "\\", "/").Trim() } | Where-Object { $_ })
     $meta = [ordered]@{ version = $Version; from = $from; delete = $deleteList }
-    ($meta | ConvertTo-Json -Depth 5) | Set-Content -Path (Join-Path $stageP "patch.json") -Encoding utf8
+    $metaJson = ($meta | ConvertTo-Json -Depth 5)
+    [System.IO.File]::WriteAllText((Join-Path $stageP "patch.json"), $metaJson, (New-Object System.Text.UTF8Encoding($false)))
 
     if ($included -eq 0 -and $deleteList.Count -eq 0) {
         Write-Host "no code changes since $PrevTag; skipping patch asset"

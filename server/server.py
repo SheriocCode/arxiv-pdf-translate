@@ -558,7 +558,7 @@ def get_update_state():
 def fetch_json_url(url, timeout=8):
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+        return json.loads(response.read().decode("utf-8-sig"))
 
 
 def update_check():
@@ -666,7 +666,7 @@ def _stage_update(source):
     meta = os.path.join(staging, "patch.json")
     if os.path.isfile(meta):
         try:
-            with open(meta, "r", encoding="utf-8") as handle:
+            with open(meta, "r", encoding="utf-8-sig") as handle:
                 deletes = json.load(handle).get("delete") or []
         except (OSError, ValueError):
             deletes = []
