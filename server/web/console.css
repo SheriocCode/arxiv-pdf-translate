@@ -338,6 +338,51 @@ a.btn { text-decoration: none; }
   font-size: 12.5px; z-index: 50;
 }
 
+/* -- driver.js dark theme (console.css loads after driver.css) ----------- */
+.driver-popover {
+  font-family: inherit;
+  background-color: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .5);
+  min-width: 240px;
+}
+.driver-popover-title { color: var(--fg); font-size: 15px; }
+.driver-popover-description { color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.driver-popover-progress-text { color: var(--muted); }
+.driver-popover-close-btn { color: var(--muted); }
+.driver-popover-close-btn:hover,
+.driver-popover-close-btn:focus { color: var(--fg); }
+.driver-popover-footer-btn {
+  background-color: transparent;
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 5px 11px;
+  font-size: 12px;
+}
+.driver-popover-footer-btn:hover,
+.driver-popover-footer-btn:focus { background-color: rgba(255, 255, 255, .06); color: var(--fg); }
+.driver-popover-next-btn {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.driver-popover-next-btn:hover,
+.driver-popover-next-btn:focus {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+.driver-popover-arrow-side-left { border-left-color: var(--panel); }
+.driver-popover-arrow-side-right { border-right-color: var(--panel); }
+.driver-popover-arrow-side-top { border-top-color: var(--panel); }
+.driver-popover-arrow-side-bottom { border-bottom-color: var(--panel); }
+
+/* 注：不给 .driver-active-element 加描边——driver.js 的高亮洞是按 stagePadding
+   在元素外扩的，自加边框会与洞错位。突出交给更强的遮罩对比即可。 */
+
 @media (max-width: 760px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }

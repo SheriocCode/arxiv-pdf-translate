@@ -2,6 +2,7 @@
 #
 #   powershell -File tools/publish.ps1 -Version 0.5.0
 #   powershell -File tools/publish.ps1 -Version 0.5.0 -Notes "本次更新说明"
+#   powershell -File tools/publish.ps1 -Version 0.5.1 -PatchOnly   # 只发代码补丁，不打/传安装包
 #
 # Steps: build payload + code patch (tools/build-release.ps1) -> build the
 # installer with Inno Setup -> tag & push -> create/update the GitHub Release
@@ -12,14 +13,15 @@
 #   - Inno Setup 6 (auto-detected: PATH / %LOCALAPPDATA%\Programs / Program Files)
 #   - GitHub CLI: `gh auth login`  (behind a proxy: set $env:HTTPS_PROXY first)
 #   - server/server.py APP_VERSION already bumped to -Version
-#   - engine/ present locally (so the installer bundles it)
+#   - engine/ present locally (so the installer bundles it; not needed with -PatchOnly)
 
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$PrevTag = "",
     [string]$Notes = "",
     [string]$Repo = "",
-    [string]$Branch = "main"
+    [string]$Branch = "main",
+    [switch]$PatchOnly
 )
 
 # Native tools (gh/git/iscc) write progress to stderr; keep going and check exit codes.
@@ -40,7 +42,7 @@ if ($LASTEXITCODE -ne 0) { Fail "gh is not authenticated; run 'gh auth login' (s
 if (-not $Repo) { $Repo = (& gh repo view --json nameWithOwner -q .nameWithOwner 2>$null) }
 $Repo = ("$Repo").Trim()
 if (-not $Repo) { Fail "cannot determine repo; pass -Repo owner/name" }
-if (-not (Test-Path "engine")) { Fail "engine/ not found; the installer must bundle the engine" }
+if (-not $PatchOnly -and -not (Test-Path "engine")) { Fail "engine/ not found; the installer must bundle the engine" }
 
 # ---- 1. version / engine version -------------------------------------------
 $m = Select-String -Path "server/server.py" -Pattern 'APP_VERSION\s*=\s*"([^"]+)"' -ErrorAction SilentlyContinue
@@ -55,24 +57,29 @@ else { Write-Host "WARNING: engine/VERSION not found; engine_version will be emp
 if (-not $PrevTag) {
     $PrevTag = (git tag --sort=-v:refname | Where-Object { $_ -match '^v' -and $_ -ne $tag } | Select-Object -First 1)
 }
-Write-Host "publishing $tag  (prev=$PrevTag  engine=$engine)"
+if ($PatchOnly -and -not $PrevTag) { Fail "-PatchOnly needs a previous tag (-PrevTag) as the patch base" }
+Write-Host "publishing $tag  (prev=$PrevTag  engine=$engine  patchOnly=$PatchOnly)"
 
 # ---- 3. build payload + patch ----------------------------------------------
-& "$PSScriptRoot/build-release.ps1" -Version $Version -PrevTag $PrevTag
+& "$PSScriptRoot/build-release.ps1" -Version $Version -PrevTag $PrevTag -SkipPayload:$PatchOnly
 Assert-Ok "build-release.ps1"
 
 # ---- 4. build installer (Inno Setup) ---------------------------------------
-$iscc = "iscc"
-if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
-    foreach ($p in @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
-                     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-                     "$env:ProgramFiles\Inno Setup 6\ISCC.exe")) {
-        if (Test-Path $p) { $iscc = $p; break }
+if ($PatchOnly) {
+    Write-Host "patch-only: skip installer"
+} else {
+    $iscc = "iscc"
+    if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+        foreach ($p in @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+                         "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+                         "$env:ProgramFiles\Inno Setup 6\ISCC.exe")) {
+            if (Test-Path $p) { $iscc = $p; break }
+        }
     }
+    Write-Host "using Inno Setup compiler: $iscc"
+    & $iscc "/DVersion=$Version" "installer\ArxivPdfTranslate.iss"
+    Assert-Ok "Inno Setup (iscc)"
 }
-Write-Host "using Inno Setup compiler: $iscc"
-& $iscc "/DVersion=$Version" "installer\ArxivPdfTranslate.iss"
-Assert-Ok "Inno Setup (iscc)"
 
 # ---- 5. checksums -----------------------------------------------------------
 $out = "dist/release"
@@ -98,14 +105,28 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # ---- 7. update.json ---------------------------------------------------------
-$installer = "ArxivPdfTranslate-Setup-v$Version.exe"
 $patchName = "arxiv-pdf-translate-v$Version-patch-from-$($PrevTag.TrimStart('v')).zip"
 $base = "https://github.com/$Repo/releases/download/$tag"
 $obj = [ordered]@{
     version        = $Version
     engine_version = $engine
     notes          = $Notes
-    installer      = [ordered]@{ url = "$base/$installer" }
+}
+if ($PatchOnly) {
+    # engine is unchanged in a patch-only release: keep pointing at the last installer.
+    $prevManifest = $null
+    if (Test-Path "update.json") {
+        try { $prevManifest = Get-Content "update.json" -Raw | ConvertFrom-Json } catch { $prevManifest = $null }
+    }
+    if ($prevManifest -and $prevManifest.installer -and $prevManifest.installer.url) {
+        $obj.installer = [ordered]@{ url = $prevManifest.installer.url }
+        Write-Host "patch-only: keeping installer url $($prevManifest.installer.url)"
+    } else {
+        Write-Host "WARNING: patch-only but no previous installer url found; update.json will omit installer"
+    }
+} else {
+    $installer = "ArxivPdfTranslate-Setup-v$Version.exe"
+    $obj.installer = [ordered]@{ url = "$base/$installer" }
 }
 if ($PrevTag -and (Test-Path "$out/$patchName")) {
     $obj.patch = [ordered]@{

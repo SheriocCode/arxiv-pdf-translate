@@ -14,7 +14,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$PrevTag = "",
-    [string]$OutDir = "dist/release"
+    [string]$OutDir = "dist/release",
+    [switch]$SkipPayload
 )
 
 $ErrorActionPreference = "Stop"
@@ -91,13 +92,19 @@ New-Item -ItemType Directory -Path $OutDir | Out-Null
 
 # ---- full payload (consumed by the Inno Setup installer) --------------------
 # The engine is bundled exactly once: inside the installer (no separate full.zip).
-$payload = Join-Path (Split-Path $OutDir -Parent) "payload"
-if (Test-Path $payload) { Remove-Item -LiteralPath $payload -Recurse -Force }
-New-Item -ItemType Directory -Path $payload | Out-Null
-foreach ($item in $appItems) { Copy-Rel $item $payload }
-if (Test-Path "engine") { Copy-Item -LiteralPath "engine" -Destination (Join-Path $payload "engine") -Recurse -Force }
-Assert-FullPackage $payload
-Write-Host "staged payload: $payload"
+if ($SkipPayload) {
+    $payload = Join-Path (Split-Path $OutDir -Parent) "payload"
+    if (Test-Path $payload) { Remove-Item -LiteralPath $payload -Recurse -Force }
+    Write-Host "skip payload (patch-only build)"
+} else {
+    $payload = Join-Path (Split-Path $OutDir -Parent) "payload"
+    if (Test-Path $payload) { Remove-Item -LiteralPath $payload -Recurse -Force }
+    New-Item -ItemType Directory -Path $payload | Out-Null
+    foreach ($item in $appItems) { Copy-Rel $item $payload }
+    if (Test-Path "engine") { Copy-Item -LiteralPath "engine" -Destination (Join-Path $payload "engine") -Recurse -Force }
+    Assert-FullPackage $payload
+    Write-Host "staged payload: $payload"
+}
 
 # ---- patch package (code only) ---------------------------------------------
 if ($PrevTag -ne "") {

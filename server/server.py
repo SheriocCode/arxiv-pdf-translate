@@ -42,7 +42,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 BRIDGE_VERSION = "0.2.0"
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.5.1"
 UPDATE_MANIFEST_URL_DEFAULT = (
     "https://raw.githubusercontent.com/SheriocCode/arxiv-pdf-translate/main/update.json"
 )

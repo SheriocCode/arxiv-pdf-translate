@@ -58,6 +58,7 @@
     applyUpdateBtn: $("applyUpdateBtn"), installLink: $("installerLink"), updateInfo: $("updateInfo"),
     updateProgressRow: $("updateProgressRow"), updateBar: $("updateBar"),
     updateStatus: $("updateStatus"),
+    tourLink: $("tourLink"),
     toast: $("toast")
   };
 
@@ -925,6 +926,51 @@
     }, 1500);
   }
 
+  /* -- guided tour (driver.js) ------------------------------------------- */
+  const TOUR_STEPS = [
+    { el: ".extbar", side: "bottom", title: "浏览器扩展状态",
+      desc: "这里显示当前浏览器是否已安装本扩展；未安装时给出安装指引。" },
+    { el: '.nav-item[data-panel="settings"]', side: "right", title: "翻译设置",
+      desc: "配置模型接口（地址 / 模型 / 密钥）、源与目标语言、导出格式、线程数等。" },
+    { el: '.nav-item[data-panel="records"]', side: "right", title: "翻译记录",
+      desc: "本地缓存的历史译文，可搜索、分组、打开 / 下载 / 删除。" },
+    { el: '.nav-item[data-panel="logs"]', side: "right", title: "运行日志",
+      desc: "结构化 trace：按级别 / 类别筛选、搜索、查看明细、一键清空。" },
+    { el: '.nav-item[data-panel="system"]', side: "right", title: "系统",
+      desc: "开机自启、桌面快捷方式、停止服务，以及“软件更新”（检查 / 打补丁 / 下载安装包）。" }
+  ];
+
+  function startTour() {
+    const lib = window.driver && window.driver.js;
+    if (!lib || !lib.driver) { return; }
+    const steps = TOUR_STEPS
+      .filter(function (s) { return document.querySelector(s.el); })
+      .map(function (s) {
+        return {
+          element: s.el,
+          popover: { title: s.title, description: s.desc, side: s.side, align: "start" }
+        };
+      });
+    if (!steps.length) { return; }
+    lib.driver({
+      steps: steps,
+      showProgress: true,
+      progressText: "{{current}} / {{total}}",
+      nextBtnText: "下一步",
+      prevBtnText: "上一步",
+      doneBtnText: "完成",
+      overlayColor: "#05070b",
+      overlayOpacity: 0.78,
+      stagePadding: 8,
+      stageRadius: 8,
+      skipMissingElement: true,
+      smoothScroll: true,
+      onDestroyed: function () {
+        try { localStorage.setItem("at.tourDone", "1"); } catch (err) { /* ignore */ }
+      }
+    }).drive();
+  }
+
   /* -- init -------------------------------------------------------------- */
   function init() {
     fillLangs();
@@ -991,6 +1037,10 @@
     el.copyExtDirBtn.addEventListener("click", function () {
       copyText(projectRoot);
     });
+    el.tourLink.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      startTour();
+    });
     window.addEventListener("focus", function () {
       refreshExtensionStatus();
     });
@@ -1004,6 +1054,11 @@
 
     healthTimer = setInterval(refreshHealth, 3000);
     window.addEventListener("beforeunload", function () { clearInterval(healthTimer); });
+
+    try {
+      if (!localStorage.getItem("at.tourDone")) { setTimeout(startTour, 700); }
+    }
+    catch (err) { /* ignore */ }
   }
 
   init();
