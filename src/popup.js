@@ -11,6 +11,11 @@
     ignoreCache: document.getElementById("ignoreCache"),
     translate: document.getElementById("translate"),
     openOptions: document.getElementById("openOptions"),
+    translateSection: document.getElementById("translateSection"),
+    connSection: document.getElementById("connSection"),
+    serverUrlInput: document.getElementById("serverUrlInput"),
+    recheckBtn: document.getElementById("recheckBtn"),
+    connResult: document.getElementById("connResult"),
     existingSection: document.getElementById("existingSection"),
     existingList: document.getElementById("existingList")
   };
@@ -120,12 +125,22 @@
     el.serverStatus.setAttribute("aria-label", title || "");
   }
 
-  async function checkServer(serverUrl) {
+  function setConnected(connected) {
+    el.translateSection.hidden = !connected;
+    el.connSection.hidden = connected;
+  }
+
+  function setConnResult(text) {
+    el.connResult.textContent = text || "";
+  }
+
+  async function checkServer(target) {
     try {
-      const response = await fetch(serverUrl + "/health", { cache: "no-store" });
+      const response = await fetch(target + "/health", { cache: "no-store" });
       if (!response.ok) {
         setServerStatus("err", "服务异常");
-        return;
+        setConnected(false);
+        return false;
       }
       const health = await response.json();
       if (health.engine_available) {
@@ -134,10 +149,20 @@
       else {
         setServerStatus("err", "未找到翻译引擎");
       }
+      setConnected(true);
+      return true;
     }
     catch (err) {
       setServerStatus("err", "服务未启动");
+      setConnected(false);
+      return false;
     }
+  }
+
+  async function persistServer() {
+    serverUrl = AT.normalizeServer(el.serverUrlInput.value);
+    el.serverUrlInput.value = serverUrl;
+    await AT.saveSettings({ serverUrl: serverUrl });
   }
 
   function currentOptions() {
@@ -162,12 +187,13 @@
   }
 
   async function init() {
-    const settings = await AT.getSettings();
+    const settings = await AT.syncSettingsFromServer();
 
     AT.fillLangSelect(el.sourceLang, settings.sourceLang);
     AT.fillLangSelect(el.targetLang, settings.targetLang);
 
     serverUrl = AT.normalizeServer(settings.serverUrl);
+    el.serverUrlInput.value = serverUrl;
     checkServer(serverUrl);
 
     chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
@@ -204,8 +230,29 @@
       );
     });
 
-    el.openOptions.addEventListener("click", function () {
-      chrome.runtime.openOptionsPage();
+    el.openOptions.addEventListener("click", async function () {
+      await persistServer();
+      if (await checkServer(serverUrl)) {
+        chrome.tabs.create({ url: AT.consoleUrl(serverUrl) });
+        window.close();
+      }
+    });
+
+    el.serverUrlInput.addEventListener("change", async function () {
+      await persistServer();
+      setConnResult("");
+      checkServer(serverUrl);
+    });
+
+    el.recheckBtn.addEventListener("click", async function () {
+      await persistServer();
+      setConnResult("");
+      if (await checkServer(serverUrl)) {
+        setConnResult("连接成功");
+      }
+      else {
+        setConnResult("仍无法连接，请确认服务已启动。");
+      }
     });
   }
 

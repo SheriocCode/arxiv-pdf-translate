@@ -1,6 +1,6 @@
 {
   "host": "127.0.0.1",
-  "port": 8760,
+  "port": 18760,
   "engine_path": "",
   "service": "openai",
   "openai_base_url": "https://api.deepseek.com",

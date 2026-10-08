@@ -1,4 +1,5 @@
 pdf2zh/
+engine/
 
 dist/
 server/config.json

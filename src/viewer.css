@@ -37,12 +37,57 @@ body {
   z-index: 10;
 }
 
+.tool-logo {
+  position: absolute;
+  left: 50%;
+  bottom: 5px;
+  transform: translateX(-50%);
+  height: 24px;
+  width: auto;
+  pointer-events: none;
+  opacity: .95;
+}
+
+.tool-logo[hidden] {
+  display: none;
+}
+
+.tool-logo path {
+  fill: none;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 320;
+  stroke-dashoffset: 320;
+  animation: tool-draw 2.4s ease-in-out infinite;
+}
+
+.tool-logo .tl1 {
+  stroke: #0055d4;
+}
+
+.tool-logo .tl2 {
+  stroke: #338000;
+  animation-delay: .35s;
+}
+
+.tool-logo .tl3 {
+  stroke: #0055d4;
+  animation-delay: .7s;
+}
+
+@keyframes tool-draw {
+  0% { stroke-dashoffset: 320; }
+  60% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: 0; }
+}
+
 .tool-progress {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 2px;
+  height: 1px;
   background: rgba(255, 255, 255, .06);
   overflow: hidden;
 }

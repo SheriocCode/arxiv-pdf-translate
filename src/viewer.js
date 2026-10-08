@@ -34,6 +34,7 @@
     blockToggle: document.getElementById("blockToggle"),
     toolProgress: document.getElementById("toolProgress"),
     toolProgressFill: document.getElementById("toolProgressFill"),
+    toolLogo: document.getElementById("toolLogo"),
     statusPanel: document.getElementById("statusPanel"),
     spinner: document.getElementById("spinner"),
     statusTitle: document.getElementById("statusTitle"),
@@ -141,9 +142,7 @@
 
   function showError(message, options) {
     const opts = options || {};
-    if (el.toolProgress) {
-      el.toolProgress.hidden = true;
-    }
+    setProgressIndicator(false);
     el.statusPanel.hidden = false;
     el.spinner.hidden = true;
     el.statusTitle.textContent = "翻译失败";
@@ -178,9 +177,7 @@
     if (el.viewModes) {
       el.viewModes.hidden = true;
     }
-    if (el.toolProgress) {
-      el.toolProgress.hidden = true;
-    }
+    setProgressIndicator(false);
     if (el.pageNav) {
       el.pageNav.hidden = true;
     }
@@ -585,6 +582,15 @@
     el.toolProgressFill.style.width = pct + "%";
   }
 
+  function setProgressIndicator(show) {
+    if (el.toolProgress) {
+      el.toolProgress.hidden = !show;
+    }
+    if (el.toolLogo) {
+      el.toolLogo.hidden = !show;
+    }
+  }
+
   function setViewMode(mode) {
     if (mode !== "source" && mode !== "target" && mode !== "compare") {
       mode = "compare";
@@ -754,19 +760,17 @@
     const slot = state.rightSlots[page - 1];
     const done = !!(slot && slot.nodeName === "CANVAS");
 
-    // While the page is translating: left shows thin frames (original), right
-    // shows one block as soon as it is translated (with its translated text).
-    // Once the real translated page is available, both overlays are cleared.
+    // Block frames are shown only on the original (left) side while the page is
+    // still translating; cleared once the real translated page is available.
+    // The translated (right) side keeps no frames.
     if (!done) {
       renderRects(layerL, state.pageWrap[page], page, false);
-      renderRects(layerR, state.rightWrap[page], page, true);
     }
-
     if (layerL) {
       layerL.classList.toggle("hidden", !state.blockOverlay || done);
     }
     if (layerR) {
-      layerR.classList.toggle("hidden", !state.blockOverlay || done);
+      layerR.classList.add("hidden");
     }
   }
 
@@ -1090,9 +1094,7 @@
     state.previewVariant = "mono";
     resetCompare();
     setRunning(true);
-    if (el.toolProgress) {
-      el.toolProgress.hidden = false;
-    }
+    setProgressIndicator(true);
     setToolProgress(0, 0);
     el.frame.hidden = true;
 
@@ -1118,9 +1120,7 @@
       state.jobId = job.id;
 
       await pollJob(state.jobId);
-      if (el.toolProgress) {
-        el.toolProgress.hidden = true;
-      }
+      setProgressIndicator(false);
 
       state.translatedBlob = await fetchResult(state.jobId, el.outputVariant.value);
       setRunning(false);
@@ -1290,8 +1290,18 @@
       }
     });
 
-    const openOptions = function () {
-      chrome.runtime.openOptionsPage();
+    const openOptions = async function () {
+      try {
+        const response = await fetch(state.serverUrl + "/health", { cache: "no-store" });
+        if (response.ok) {
+          chrome.tabs.create({ url: AT.consoleUrl(state.serverUrl) });
+          return;
+        }
+      }
+      catch (err) {
+        /* fall through */
+      }
+      window.alert("本机服务未启动，请先在启动器/托盘图标启动服务。");
     };
     el.brandBtn.addEventListener("click", openOptions);
     el.settingsBtn.addEventListener("click", openOptions);
@@ -1310,7 +1320,7 @@
       return;
     }
 
-    state.settings = await AT.getSettings();
+    state.settings = await AT.syncSettingsFromServer();
     state.serverUrl = AT.normalizeServer(state.settings.serverUrl);
 
     if (state.fileUrl) {

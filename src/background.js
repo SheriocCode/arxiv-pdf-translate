@@ -3,8 +3,6 @@ importScripts("common.js");
 
 const MENU_LINK = "translate-link";
 const MENU_PAGE = "translate-page";
-const BADGE_TEXT = "译";
-const BADGE_COLOR = "#2563eb";
 
 function ensureDefaults() {
   return AT.getSettings().then(function (settings) {
@@ -29,75 +27,12 @@ function rebuildMenus() {
   });
 }
 
-function setBadge(tabId, show) {
-  if (tabId === undefined || tabId === null) {
-    return;
-  }
-  chrome.action.setBadgeText({ tabId: tabId, text: show ? BADGE_TEXT : "" });
-  if (show) {
-    chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR });
-  }
-}
-
-function consumeLastError() {
-  void chrome.runtime.lastError; /* clears "unchecked lastError" warnings */
-}
-
-function updateBadge(tab) {
-  if (!tab || tab.id === undefined || tab.id === null) {
-    return;
-  }
-  const url = tab.url || "";
-  AT.getSettings().then(function (settings) {
-    const show = !!settings.badgeOnPdf && AT.isPdfUrl(url);
-    setBadge(tab.id, show);
-    chrome.action.setTitle({
-      tabId: tab.id,
-      title: show ? "用本地翻译引擎翻译此 PDF" : "Arxiv PDF Translate"
-    });
-  });
-}
-
-function refreshAllBadges() {
-  chrome.tabs.query({}, function (tabs) {
-    consumeLastError();
-    (tabs || []).forEach(updateBadge);
-  });
-}
-
 chrome.runtime.onInstalled.addListener(function () {
-  ensureDefaults().then(function () {
-    rebuildMenus();
-    refreshAllBadges();
-  });
+  ensureDefaults().then(rebuildMenus);
 });
 
 chrome.runtime.onStartup.addListener(function () {
   rebuildMenus();
-  refreshAllBadges();
-});
-
-chrome.tabs.onActivated.addListener(function (activeInfo) {
-  chrome.tabs.get(activeInfo.tabId, function (tab) {
-    consumeLastError();
-    updateBadge(tab);
-  });
-});
-
-chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
-  if (changeInfo.url || changeInfo.status === "complete") {
-    updateBadge(tab);
-  }
-});
-
-chrome.tabs.onRemoved.addListener(function (tabId) {
-  setBadge(tabId, false);
-});
-
-chrome.storage.onChanged.addListener(function (changes, area) {
-  if (area === "sync" && changes.badgeOnPdf) {
-    refreshAllBadges();
-  }
 });
 
 chrome.contextMenus.onClicked.addListener(function (info, tab) {

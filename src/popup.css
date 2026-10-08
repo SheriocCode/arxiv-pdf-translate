@@ -316,3 +316,53 @@ button.ghost:hover {
   min-height: 14px;
   margin-top: -4px;
 }
+
+#translateSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.conn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.conn-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.conn-ico {
+  flex: none;
+  display: inline-flex;
+  margin-top: 1px;
+  color: var(--err);
+}
+
+.conn-ico svg {
+  width: 18px;
+  height: 18px;
+}
+
+.conn-text {
+  min-width: 0;
+}
+
+.conn-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.conn-sub {
+  color: var(--muted);
+  font-size: 11.5px;
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+.conn > button {
+  width: 100%;
+}

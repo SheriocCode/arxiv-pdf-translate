@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -44,9 +45,28 @@ BRIDGE_VERSION = "0.2.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
+WEB_DIR = os.path.join(HERE, "web")
+ICONS_DIR = os.path.join(ROOT, "icons")
+LOG_FILE_PATH = os.path.join(HERE, "server.log")
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_NAME = "BrowserPDFTranslate"
+SHORTCUT_NAME = "Arxiv PDF Translate.lnk"
+LAUNCHER_NAMES = ("ArxivPdfTranslate.exe",)
+
+MIME_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+}
+
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
-    "port": 8760,
+    "port": 18760,
     "engine_path": "",
     "service": "openai",
     "openai_base_url": "https://api.deepseek.com",
@@ -85,12 +105,28 @@ _verbose = False
 WRITABLE_CONFIG = (
     "service", "openai_base_url", "openai_api_key", "openai_model",
     "engine_path", "use_babeldoc", "extra_args", "timeout",
+    "source_lang", "target_lang", "output_variant", "threads",
 )
 
 
-def log(message):
+LOG_LEVELS = ("DEBUG", "INFO", "SUCCESS", "WARN", "ERROR")
+LOG_CATEGORIES = ("SERVER", "SYSTEM", "CONFIG", "JOB", "ENGINE", "CACHE",
+                  "STORAGE", "NET")
+LOG_DETAIL_SEP = " \u2016 "  # " ‖ " — separates the one-line summary from its detail
+
+
+def log(message, level="INFO", category="SERVER", detail=None):
+    level = str(level).upper()
+    category = str(category).upper()
+    if level not in LOG_LEVELS:
+        level = "INFO"
+    if category not in LOG_CATEGORIES:
+        category = "SERVER"
+    line = str(message)
+    if detail:
+        line = "%s%s%s" % (line, LOG_DETAIL_SEP, detail)
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    sys.stderr.write("[%s] [engine-server] %s\n" % (stamp, message))
+    sys.stderr.write("[%s] [%s] [%s] %s\n" % (stamp, level, category, line))
     sys.stderr.flush()
 
 
@@ -109,9 +145,9 @@ def load_config(path, cli_args):
                 user_config = json.load(handle)
             if isinstance(user_config, dict):
                 config.update({k: v for k, v in user_config.items() if v is not None})
-            log("loaded config from %s" % config_path)
+            log("loaded config from %s" % config_path, "INFO", "CONFIG")
         except (OSError, ValueError) as err:
-            log("could not read %s: %s" % (config_path, err))
+            log("could not read %s: %s" % (config_path, err), "ERROR", "CONFIG")
 
     for env_key, config_key in ENV_OVERRIDES.items():
         value = os.environ.get(env_key)
@@ -130,7 +166,7 @@ def load_config(path, cli_args):
     try:
         config["port"] = int(config["port"])
     except (TypeError, ValueError):
-        config["port"] = 8760
+        config["port"] = 18760
     try:
         config["threads"] = int(config["threads"])
     except (TypeError, ValueError):
@@ -229,6 +265,13 @@ def config_public():
         "openai_api_key_masked": mask_key(_config.get("openai_api_key")),
         "engine_path": _config.get("engine_path", ""),
         "use_babeldoc": bool(_config.get("use_babeldoc")),
+        "extra_args": _config.get("extra_args", ""),
+        "timeout": _config.get("timeout", 3600),
+        "port": _config.get("port", 18760),
+        "source_lang": _config.get("source_lang", "en"),
+        "target_lang": _config.get("target_lang", "zh-CN"),
+        "output_variant": _config.get("output_variant", "dual"),
+        "threads": _config.get("threads", 4),
     }
 
 
@@ -238,11 +281,13 @@ def save_config_file():
             json.dump(_config, handle, ensure_ascii=False, indent=2)
         return True
     except OSError as err:
-        log("failed to write config %s: %s" % (config_path(), err))
+        log("failed to write config %s: %s" % (config_path(), err), "ERROR", "CONFIG")
         return False
 
 
 def update_config(updates):
+    if not isinstance(updates, dict):
+        return False
     changed = []
     for field in WRITABLE_CONFIG:
         if field not in updates:
@@ -250,18 +295,218 @@ def update_config(updates):
         value = updates[field]
         if field == "use_babeldoc":
             _config[field] = bool(value)
-        elif field == "timeout":
+        elif field in ("timeout", "threads"):
             try:
                 _config[field] = int(value)
             except (TypeError, ValueError):
-                pass
+                continue
+        elif field == "output_variant":
+            variant = str(value or "")
+            if variant not in ("dual", "mono"):
+                continue
+            _config[field] = variant
         else:
             _config[field] = "" if value is None else str(value)
         changed.append(field)
     ok = save_config_file()
     if changed:
-        log("config updated: %s (saved=%s)" % (", ".join(changed), ok))
+        log("config updated: %s (saved=%s)" % (", ".join(changed), ok),
+            "INFO" if ok else "ERROR", "CONFIG")
     return ok
+
+
+# --------------------------------------------------------------------------- #
+# System integration (autostart / shortcut / logs) — used by the web console
+# --------------------------------------------------------------------------- #
+def find_launcher_exe():
+    for base in (os.path.join(ROOT, "launcher"), HERE, ROOT):
+        for name in LAUNCHER_NAMES:
+            path = os.path.join(base, name)
+            if os.path.isfile(path):
+                return os.path.abspath(path)
+    return ""
+
+
+def get_autostart():
+    if os.name != "nt":
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, RUN_NAME)
+            return bool(value)
+    except OSError:
+        return False
+
+
+def set_autostart(enabled):
+    if os.name != "nt":
+        return False
+    import winreg
+    launcher = find_launcher_exe()
+    if not launcher:
+        log("autostart: launcher executable not found", "WARN", "SYSTEM")
+        return False
+    try:
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            if enabled:
+                winreg.SetValueEx(key, RUN_NAME, 0, winreg.REG_SZ, '"%s" --tray' % launcher)
+            else:
+                try:
+                    winreg.DeleteValue(key, RUN_NAME)
+                except FileNotFoundError:
+                    pass
+        log("autostart %s -> %s" % ("enabled" if enabled else "disabled", launcher),
+            "INFO", "SYSTEM")
+        return True
+    except OSError as err:
+        log("autostart failed: %s" % err, "ERROR", "SYSTEM")
+        return False
+
+
+def desktop_dir():
+    """Resolve the current user's Desktop folder (honors relocation to D: etc.)."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class _GUID(ctypes.Structure):
+                _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                            ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
+
+            uid = uuid.UUID("B4BFCC3A-DB2C-424C-B029-7FE99A87C641")  # FOLDERID_Desktop
+            guid = _GUID(uid.time_low, uid.time_mid, uid.time_hi_version,
+                         (ctypes.c_ubyte * 8)(*uid.bytes[8:]))
+            ptr = ctypes.c_wchar_p()
+            get_path = ctypes.windll.shell32.SHGetKnownFolderPath
+            get_path.argtypes = [ctypes.POINTER(_GUID), wintypes.DWORD,
+                                 wintypes.HANDLE, ctypes.POINTER(ctypes.c_wchar_p)]
+            get_path.restype = ctypes.c_long
+            if get_path(ctypes.byref(guid), 0, None, ctypes.byref(ptr)) == 0 and ptr.value:
+                path = ptr.value
+                ctypes.windll.ole32.CoTaskMemFree(ctypes.cast(ptr, ctypes.c_void_p))
+                return path
+        except Exception:
+            pass
+        try:
+            import winreg
+            with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as key:
+                value, _ = winreg.QueryValueEx(key, "Desktop")
+                value = os.path.expandvars(str(value))
+                if value:
+                    return value
+        except OSError:
+            pass
+    return os.path.join(os.path.expanduser("~"), "Desktop")
+
+
+def create_shortcut():
+    if os.name != "nt":
+        return ""
+    launcher = find_launcher_exe()
+    if not launcher:
+        return ""
+    desktop = desktop_dir()
+    target = os.path.join(desktop, SHORTCUT_NAME)
+    icon = os.path.join(ICONS_DIR, "icon.ico")
+
+    def q(value):
+        return str(value).replace("'", "''")
+
+    script = (
+        "$ws = New-Object -ComObject WScript.Shell; "
+        "$s = $ws.CreateShortcut('%s'); "
+        "$s.TargetPath = '%s'; "
+        "$s.WorkingDirectory = '%s'; "
+        "$s.Description = 'Arxiv PDF Translate'; "
+        "$s.IconLocation = '%s'; "
+        "$s.Save()"
+    ) % (q(target), q(launcher), q(ROOT), q(icon))
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as err:
+        log("shortcut failed: %s" % err, "ERROR", "SYSTEM")
+        return ""
+    created = target if os.path.isfile(target) else ""
+    log("shortcut %s: %s" % ("created" if created else "failed", target),
+        "INFO" if created else "ERROR", "SYSTEM")
+    return created
+
+
+LOG_LINE_RE = re.compile(
+    r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\] \[([A-Z]+)\] \[([A-Z]+)\] (.*)$")
+LOG_JOB_RE = re.compile(r"\bjob ([0-9a-fA-F]{8,})")
+
+
+def parse_log_line(raw):
+    """Parse one line of the current log format:
+    [YYYY-MM-DD HH:MM:SS] [LEVEL] [CATEGORY] message [ ‖ detail]"""
+    text = raw.rstrip("\r\n")
+    match = LOG_LINE_RE.match(text)
+    if not match:
+        return None
+    time_s, level, category, rest = match.groups()
+    detail = ""
+    if LOG_DETAIL_SEP in rest:
+        rest, detail = rest.split(LOG_DETAIL_SEP, 1)
+        detail = detail.strip()
+    entry = {"time": time_s, "level": level, "category": category,
+             "message": rest.rstrip(), "detail": detail, "job": "", "raw": text}
+    found = LOG_JOB_RE.search(rest)
+    if found:
+        entry["job"] = found.group(1)
+    return entry
+
+
+def read_log_entries(max_lines=1500):
+    try:
+        max_lines = max(1, min(int(max_lines), 5000))
+    except (TypeError, ValueError):
+        max_lines = 1500
+    try:
+        size = os.path.getsize(LOG_FILE_PATH)
+    except OSError:
+        return []
+    chunk = 512 * 1024
+    try:
+        with open(LOG_FILE_PATH, "rb") as handle:
+            if size > chunk:
+                handle.seek(size - chunk)
+                data = handle.read()
+                newline = data.find(b"\n")
+                if newline >= 0:
+                    data = data[newline + 1:]
+            else:
+                data = handle.read()
+    except OSError:
+        return []
+    text = data.decode("utf-8", "replace")
+    lines = text.splitlines()
+    entries = []
+    for line in lines[-max_lines:]:
+        if not line.strip():
+            continue
+        entry = parse_log_line(line)
+        if entry is not None:
+            entries.append(entry)
+    return entries
+
+
+def clear_log():
+    try:
+        with open(LOG_FILE_PATH, "w", encoding="utf-8"):
+            pass
+    except OSError as err:
+        log("failed to clear log: %s" % err, "ERROR", "SYSTEM")
+        return False
+    log("log cleared", "INFO", "SYSTEM")
+    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -363,6 +608,8 @@ def store_result(key, result_path, job, params):
         threading.Thread(
             target=enrich_entry, args=(key, entry["source_url"]), daemon=True
         ).start()
+    log("cache saved: %s (%s, %d bytes)" % (
+        key, entry["name"], size), "SUCCESS", "STORAGE")
     return dest
 
 
@@ -410,7 +657,7 @@ def storage_delete(key):
             save_index(remaining)
             removed = True
     if removed:
-        log("storage deleted: %s" % key)
+        log("cache record deleted: %s" % key, "INFO", "STORAGE")
     return removed
 
 
@@ -447,7 +694,7 @@ def create_group(name):
         if name not in groups:
             groups.append(name)
             save_groups(groups)
-            log("group created: %s" % name)
+            log("group created: %s" % name, "INFO", "STORAGE")
     return name
 
 
@@ -468,7 +715,7 @@ def delete_group(name):
                 changed = True
         if changed:
             save_index(entries)
-    log("group deleted: %s" % name)
+    log("group deleted: %s" % name, "INFO", "STORAGE")
     return True
 
 
@@ -545,7 +792,7 @@ def fetch_title(source_url):
             return fetch_arxiv_title(identifier)
         return fetch_html_title(source_url)
     except Exception as err:  # noqa: BLE001 - best effort
-        log("title lookup failed for %s: %s" % (source_url, err))
+        log("title lookup failed for %s: %s" % (source_url, err), "WARN", "NET")
         return ""
 
 
@@ -555,7 +802,7 @@ def enrich_entry(key, source_url):
     title = fetch_title(source_url)
     if title:
         update_entry(key, {"title": title})
-        log("entry %s title: %s" % (key, title[:80]))
+        log("entry %s title: %s" % (key, title[:80]), "INFO", "NET")
 
 
 def enrich_storage(limit=200):
@@ -590,7 +837,7 @@ def render_thumbnail(pdf_path, out_path, width=240):
     """Render the first page to a PNG. Best effort, returns bool."""
     if os.path.isfile(out_path):
         return True
-    log("generating thumbnail: %s" % os.path.basename(pdf_path))
+    log("generating thumbnail: %s" % os.path.basename(pdf_path), "DEBUG", "STORAGE")
 
     # Fast path: render in-process if PyMuPDF is importable.
     try:
@@ -743,12 +990,12 @@ class Job(object):
             "elapsed": round((self.finished_at or time.time()) - self.created_at, 1),
         }
 
-    def fail(self, message):
+    def fail(self, message, detail=None):
         self.status = "error"
         self.error = message
         self.message = "failed"
         self.finished_at = time.time()
-        log("job %s failed: %s" % (self.id, message))
+        log("job %s failed: %s" % (self.id, message), "ERROR", "JOB", detail=detail)
 
 
 def parse_params(query):
@@ -825,12 +1072,47 @@ def resolve_result(workdir, variant):
     return newest
 
 
+def log_block_page(job, page):
+    """Emit one expandable trace entry summarizing a completed page's blocks."""
+    path = os.path.join(job.workdir, "events", "engine-events.jsonl")
+    blocks = []
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if event.get("page") == page:
+                    blocks.append(event)
+    except OSError:
+        return
+    if not blocks:
+        return
+    detail = json.dumps([
+        {
+            "index": block.get("index"),
+            "total": block.get("total"),
+            "bbox": block.get("bbox"),
+            "src": (block.get("src") or "")[:400],
+            "dst": (block.get("dst") or "")[:400],
+        }
+        for block in blocks
+    ], ensure_ascii=False)
+    log("job %s page %d: %d blocks recognized" % (job.id, page, len(blocks)),
+        "INFO", "JOB", detail=detail)
+
+
 def run_job(job):
     params = job.params
     workdir = job.workdir
     log_path = os.path.join(workdir, "engine.log")
 
     job.cache_key = cache_key(job.source_bytes, params)
+    log("job %s cache key %s" % (job.id, job.cache_key), "DEBUG", "CACHE")
     if not params.get("ignore_cache"):
         hit = lookup_cache(job.cache_key)
         if hit:
@@ -839,12 +1121,17 @@ def run_job(job):
             job.message = "已命中本地缓存"
             job.cached = True
             job.finished_at = time.time()
-            log("job %s cache hit -> %s" % (job.id, hit))
+            log("job %s cache hit -> %s" % (job.id, hit), "SUCCESS", "CACHE")
             return
+        log("job %s cache miss" % job.id, "INFO", "CACHE")
+    else:
+        log("job %s cache ignored by request" % job.id, "INFO", "CACHE")
 
     try:
         with open(os.path.join(workdir, "source.pdf"), "wb") as handle:
             handle.write(job.source_bytes)
+        log("job %s staged source.pdf (%d bytes)" % (job.id, len(job.source_bytes or b"")),
+            "DEBUG", "JOB")
         job.source_bytes = None
     except OSError as err:
         job.fail("failed to stage uploaded PDF: %s" % err)
@@ -875,11 +1162,11 @@ def run_job(job):
     job.status = "running"
     job.message = "engine started"
     log("job %s starting engine (service=%s, model=%s)" % (
-        job.id, params.get("service"), env.get("OPENAI_MODEL", "")))
-    log("job %s command: %s %s" % (job.id, exe, " ".join(args)))
+        job.id, params.get("service"), env.get("OPENAI_MODEL", "")), "INFO", "ENGINE")
+    log("job %s command: %s %s" % (job.id, exe, " ".join(args)), "DEBUG", "ENGINE")
     if _verbose:
         log("job %s env: OPENAI_MODEL=%s OPENAI_BASE_URL=%s" % (
-            job.id, env.get("OPENAI_MODEL"), env.get("OPENAI_BASE_URL")))
+            job.id, env.get("OPENAI_MODEL"), env.get("OPENAI_BASE_URL")), "DEBUG", "ENGINE")
 
     try:
         with open(log_path, "wb") as log_handle:
@@ -891,6 +1178,10 @@ def run_job(job):
                 cwd=exe_dir or workdir,
             )
             started = time.time()
+            log("job %s engine pid=%s" % (job.id, job.proc.pid), "INFO", "ENGINE")
+            last_page = -1
+            last_done = -1
+            logged_block_pages = set()
             while job.proc.poll() is None:
                 if job.cancelled:
                     job.proc.terminate()
@@ -901,6 +1192,7 @@ def run_job(job):
                     job.status = "cancelled"
                     job.message = "cancelled by client"
                     job.finished_at = time.time()
+                    log("job %s cancelled by client" % job.id, "WARN", "JOB")
                     return
                 if time.time() - started > _config["timeout"]:
                     job.proc.kill()
@@ -933,8 +1225,21 @@ def run_job(job):
                     job.block_page = int(last[0])
                     job.block_index = int(last[1])
                     job.block_total = int(last[2])
+                    if (job.block_total and job.block_index == job.block_total
+                            and job.block_page not in logged_block_pages):
+                        logged_block_pages.add(job.block_page)
+                        log_block_page(job, job.block_page)
                 job.log_tail = clean_log(raw)
                 job.message = last_log_line(raw) or "translating"
+                if job.done_pages and job.done_pages != last_done:
+                    last_done = job.done_pages
+                    log("job %s progress %d/%d pages" % (
+                        job.id, job.done_pages, job.total_pages or 0), "INFO", "JOB")
+                if current_page and current_page != last_page:
+                    last_page = current_page
+                    log("job %s page %d/%d" % (
+                        job.id, current_page,
+                        page_total or job.total_pages or 0), "DEBUG", "JOB")
                 time.sleep(0.5)
             exit_code = job.proc.returncode
     except FileNotFoundError:
@@ -946,8 +1251,11 @@ def run_job(job):
 
     job.log_tail = clean_log(read_tail(log_path))
     if exit_code != 0:
-        job.fail("engine exited with code %s\n%s" % (exit_code, job.log_tail[-3000:]))
+        job.fail("engine exited with code %s" % exit_code,
+                 detail=json.dumps(job.log_tail[-3000:], ensure_ascii=False))
         return
+    log("job %s engine exited 0 in %.1fs" % (job.id, time.time() - started),
+        "INFO", "ENGINE")
 
     job.progress = 100
     if job.total_pages:
@@ -958,16 +1266,18 @@ def run_job(job):
         variant_path = os.path.join(workdir, "source-%s.pdf" % variant)
         if os.path.isfile(variant_path):
             job.variant_files[variant] = variant_path
+            log("job %s variant '%s' ready" % (job.id, variant), "DEBUG", "ENGINE")
 
     result = resolve_result(workdir, params.get("output_variant", "dual"))
     if not result:
-        job.fail("translated PDF was not produced in %s\n%s" % (workdir, job.log_tail[-2000:]))
+        job.fail("translated PDF was not produced",
+                 detail=json.dumps(job.log_tail[-2000:], ensure_ascii=False))
         return
 
     try:
         job.result_path = store_result(job.cache_key, result, job, params)
     except OSError as err:
-        log("job %s: failed to save to storage: %s" % (job.id, err))
+        log("job %s: failed to save to storage: %s" % (job.id, err), "ERROR", "STORAGE")
         job.result_path = result
     job.status = "done"
     job.message = "translation finished"
@@ -977,7 +1287,8 @@ def run_job(job):
     except OSError:
         size = 0
     log("job %s done in %.1fs -> %s (%d bytes)" % (
-        job.id, job.finished_at - job.created_at, job.result_path, size))
+        job.id, job.finished_at - job.created_at, job.result_path, size),
+        "SUCCESS", "JOB")
 
 
 def last_log_line(text):
@@ -995,7 +1306,11 @@ def create_job(source_bytes, params):
     log("job %s created: %s | %s -> %s | %s | pages=%s | threads=%s | %d bytes" % (
         job.id, job.filename, params.get("source_lang"), params.get("target_lang"),
         params.get("output_variant"), params.get("pages") or "all",
-        params.get("threads"), len(source_bytes or b"")))
+        params.get("threads"), len(source_bytes or b"")), "INFO", "JOB")
+    log("job %s params: source_url=%s prompt=%s extra_args=%s"
+        % (job.id, params.get("source_url") or "-",
+           (params.get("prompt") or "")[:80] or "-", params.get("extra_args") or "-"),
+        "DEBUG", "JOB")
     thread = threading.Thread(target=run_job, args=(job,), daemon=True)
     thread.start()
     return job
@@ -1039,7 +1354,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         if _verbose:
-            log("%s - %s" % (self.address_string(), fmt % args))
+            log("HTTP %s - %s" % (self.address_string(), fmt % args), "DEBUG", "SERVER")
 
     # -- helpers ----------------------------------------------------------- #
     def cors_headers(self):
@@ -1077,6 +1392,44 @@ class Handler(BaseHTTPRequestHandler):
             return b""
         return self.rfile.read(length)
 
+    def serve_static(self, base_dir, name):
+        if not name or name in (".", "..") or name != os.path.basename(name):
+            self.send_json(404, {"error": "not found"})
+            return
+        path = os.path.join(base_dir, name)
+        if not os.path.isfile(path):
+            self.send_json(404, {"error": "not found"})
+            return
+        try:
+            with open(path, "rb") as handle:
+                data = handle.read()
+        except OSError as err:
+            self.send_json(500, {"error": "failed to read asset: %s" % err})
+            return
+        content_type = MIME_TYPES.get(os.path.splitext(name)[1].lower(),
+                                      "application/octet-stream")
+        self.send_bytes(200, content_type, data, {"Cache-Control": "no-cache"})
+
+    def handle_system(self):
+        self.send_json(200, {
+            "platform": platform.system().lower(),
+            "pid": os.getpid(),
+            "version": BRIDGE_VERSION,
+            "config_path": config_path(),
+            "project_root": ROOT,
+            "log_file": LOG_FILE_PATH,
+            "console_url": "http://%s:%s/" % (_config["host"], _config["port"]),
+            "launcher": find_launcher_exe(),
+            "autostart_supported": os.name == "nt",
+            "autostart": get_autostart(),
+            "shortcut_supported": os.name == "nt",
+        })
+
+    def handle_shutdown(self):
+        log("shutdown requested via API", "WARN", "SYSTEM")
+        self.send_json(200, {"ok": True})
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
+
     # -- routes ------------------------------------------------------------ #
     def do_OPTIONS(self):
         self.send_response(204)
@@ -1089,8 +1442,33 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
         parts = [p for p in parsed.path.split("/") if p]
 
-        if parsed.path in ("/", "/health"):
+        if parsed.path in ("/", "/console", "/console/", "/index.html"):
+            self.serve_static(WEB_DIR, "console.html")
+            return
+
+        if parsed.path == "/favicon.ico":
+            self.serve_static(ICONS_DIR, "icon.ico")
+            return
+
+        if parsed.path == "/health":
             self.handle_health()
+            return
+
+        if parsed.path == "/system":
+            self.handle_system()
+            return
+
+        if parsed.path == "/logs":
+            entries = read_log_entries((query.get("lines") or ["1500"])[0])
+            self.send_json(200, {
+                "path": LOG_FILE_PATH,
+                "count": len(entries),
+                "entries": entries,
+            })
+            return
+
+        if len(parts) == 2 and parts[0] in ("web", "icons"):
+            self.serve_static(WEB_DIR if parts[0] == "web" else ICONS_DIR, parts[1])
             return
 
         if parsed.path == "/config":
@@ -1160,6 +1538,21 @@ class Handler(BaseHTTPRequestHandler):
             payload["ok"] = ok
             self.send_json(200 if ok else 500, payload)
             return
+        if parsed.path == "/autostart":
+            enabled = bool(self.read_json().get("enabled"))
+            ok = set_autostart(enabled)
+            self.send_json(200 if ok else 500, {"ok": ok, "autostart": get_autostart()})
+            return
+        if parsed.path == "/shortcut":
+            path = create_shortcut()
+            self.send_json(200 if path else 500, {"ok": bool(path), "path": path})
+            return
+        if parsed.path == "/server/shutdown":
+            self.handle_shutdown()
+            return
+        if parsed.path == "/logs/clear":
+            self.send_json(200, {"ok": clear_log()})
+            return
         if parsed.path == "/storage/groups":
             self.handle_create_group()
             return
@@ -1217,6 +1610,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {"error": "request body is not a PDF"})
             return
         params = parse_params(query)
+        log("POST /jobs upload (%d bytes)" % len(body), "INFO", "SERVER")
         job = create_job(body, params)
         self.send_json(200, {"id": job.id, "status": job.status, "result_name": job.result_name})
 
@@ -1383,9 +1777,17 @@ class Handler(BaseHTTPRequestHandler):
 def main(argv=None):
     global _config, _verbose
 
+    # The log file is read back as UTF-8; force stdio to UTF-8 so non-ASCII
+    # (Chinese src/dst text) is written correctly regardless of the OS locale.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
     parser = argparse.ArgumentParser(description="Local translation-engine bridge for the browser extension.")
     parser.add_argument("--host", help="bind address (default 127.0.0.1)")
-    parser.add_argument("--port", type=int, help="bind port (default 8760)")
+    parser.add_argument("--port", type=int, help="bind port (default 18760)")
     parser.add_argument("--engine", help="path to the engine executable")
     parser.add_argument("--config", help="path to a JSON config file")
     parser.add_argument("--verbose", "-v", action="store_true", help="verbose logging")
@@ -1397,28 +1799,32 @@ def main(argv=None):
     try:
         server = BridgeServer((_config["host"], _config["port"]), Handler)
     except OSError as err:
-        log("cannot bind %s:%s (%s)" % (_config["host"], _config["port"], err))
-        log("the server may already be running; exiting.")
+        log("cannot bind %s:%s (%s)" % (_config["host"], _config["port"], err),
+            "ERROR", "SYSTEM")
+        log("the server may already be running; exiting.", "WARN", "SYSTEM")
         return
 
     exe = resolve_executable(_config["engine_path"])
     available = is_executable_available(exe)
-    log("bridge version: %s (storage cache enabled)" % BRIDGE_VERSION)
-    log("project root: %s" % ROOT)
-    log("storage dir: %s" % STORAGE_DIR)
-    log("listening on http://%s:%s" % (_config["host"], _config["port"]))
-    log("engine: %s (%s)" % (exe, "found" if available else "NOT FOUND"))
+    log("===== Arxiv PDF Translate server start =====", "INFO", "SYSTEM")
+    log("bridge version: %s | pid %d" % (BRIDGE_VERSION, os.getpid()), "INFO", "SYSTEM")
+    log("project root: %s" % ROOT, "INFO", "SYSTEM")
+    log("storage dir: %s" % STORAGE_DIR, "INFO", "SYSTEM")
+    log("listening on http://%s:%s" % (_config["host"], _config["port"]), "INFO", "SYSTEM")
+    log("engine: %s (%s)" % (exe, "found" if available else "NOT FOUND"),
+        "INFO" if available else "WARN", "ENGINE")
     if not available:
-        log("warning: engine was not found; put it in <project>/engine/ or set "
-            "'engine_path' in config.json / ENGINE_PATH")
+        log("engine not found; put it in <project>/engine/ or set 'engine_path' "
+            "in config.json / ENGINE_PATH", "WARN", "ENGINE")
 
     threading.Thread(target=enrich_storage, daemon=True).start()
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        log("shutting down")
+        log("keyboard interrupt", "WARN", "SYSTEM")
     finally:
+        log("server shutting down", "INFO", "SYSTEM")
         with _jobs_lock:
             jobs = list(_jobs.values())
         for job in jobs:

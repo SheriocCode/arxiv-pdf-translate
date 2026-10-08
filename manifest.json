@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Arxiv PDF Translate",
-  "version": "0.3.4",
+  "version": "0.4.1",
   "description": "Translate arXiv and local PDFs with the bundled local translation engine and read the bilingual PDF in the browser.",
   "homepage_url": "https://github.com/SheriocCode/arxiv-pdf-translate",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv3VwdJ178szb9ObMqcLnx820B5Wunjq5Gro70G80kzdO8V98MCW4UcglMJlewPCqMPhoRG2HOxDZWNobuzHA35BEYNEWQgTCzyhahbrDDDILrFHl916hO8+fadtvFpiYTVShKc0UDPIBWqB4JDsSlO06WOFQMIMb6y+3Ph87KOvASbsCmLg6c7cSTHfR9kb6RagQdVyLgnGR7auKDlxJ2aHxjry9Gle3Ly79Vb5zAgYKmRUhTRfT2jZobTNJc4c3GyDGPal1oqH6oohL2/70Nuba+fYeiAaSN7ufoGOpCU+vsq9TCwoNNMCEx97U07HLkhh5ToorkcmMMceCDDRtvwIDAQAB",
   "permissions": [
     "storage",
     "contextMenus",
@@ -31,7 +32,6 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "options_page": "src/options.html",
   "web_accessible_resources": [
     {
       "resources": [

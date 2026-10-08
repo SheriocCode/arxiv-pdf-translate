@@ -3,13 +3,13 @@
   "use strict";
 
   const DEFAULTS = {
-    serverUrl: "http://127.0.0.1:8760",
+    serverUrl: "http://127.0.0.1:18760",
     sourceLang: "en",
     targetLang: "zh-CN",
     outputVariant: "dual",
     threads: 4,
-    badgeOnPdf: true,
-    pollIntervalMs: 1500
+    pollIntervalMs: 1500,
+    serverConfigSnapshot: ""
   };
 
   const LANGS = [
@@ -46,6 +46,42 @@
 
   function normalizeServer(url) {
     return String(url || "").trim().replace(/\/+$/, "");
+  }
+
+  function consoleUrl(serverUrl) {
+    return normalizeServer(serverUrl) + "/";
+  }
+
+  // Adopt translation defaults from the local server's config.json, but only
+  // when the server-side config actually changed since the last sync. This
+  // lets the unified web console act as the source of truth without clobbering
+  // per-session choices the user made in the popup.
+  function syncSettingsFromServer() {
+    return getSettings().then(function (settings) {
+      const serverUrl = normalizeServer(settings.serverUrl);
+      if (!serverUrl) { return settings; }
+      return fetch(serverUrl + "/config", { cache: "no-store" })
+        .then(function (response) { return response.ok ? response.json() : null; })
+        .then(function (cfg) {
+          if (!cfg) { return settings; }
+          const current = JSON.stringify({
+            sl: cfg.source_lang || "",
+            tl: cfg.target_lang || "",
+            ov: cfg.output_variant || "",
+            th: String(cfg.threads || "")
+          });
+          if ((settings.serverConfigSnapshot || "") === current) { return settings; }
+          const next = { serverConfigSnapshot: current };
+          if (cfg.source_lang) { next.sourceLang = cfg.source_lang; }
+          if (cfg.target_lang) { next.targetLang = cfg.target_lang; }
+          if (cfg.output_variant) { next.outputVariant = cfg.output_variant; }
+          if (cfg.threads) { next.threads = cfg.threads; }
+          return saveSettings(next).then(function () {
+            return Object.assign({}, settings, next);
+          });
+        })
+        .catch(function () { return settings; });
+    });
   }
 
   function isArxivPdf(url) {
@@ -178,6 +214,8 @@
     getSettings: getSettings,
     saveSettings: saveSettings,
     normalizeServer: normalizeServer,
+    consoleUrl: consoleUrl,
+    syncSettingsFromServer: syncSettingsFromServer,
     isArxivPdf: isArxivPdf,
     isPdfUrl: isPdfUrl,
     viewerInfo: viewerInfo,
