@@ -100,6 +100,32 @@ export interface AgentEvent {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
+export interface ConvTool { name: string; args?: string; content?: string }
+export interface ConvMessage {
+  role: "user" | "assistant";
+  text: string;
+  tools?: ConvTool[];
+  reasoning?: string;
+  error?: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+export interface Conversation {
+  id: string;
+  scope: "paper" | "library";
+  docId?: string;
+  title: string;
+  updated_at: number;
+  messages: ConvMessage[];
+}
+export interface ConversationSummary {
+  id: string;
+  scope: "paper" | "library";
+  docId?: string;
+  title: string;
+  updated_at: number;
+  count: number;
+}
+
 export interface StorageEntry {
   id: string;
   name: string;
@@ -231,4 +257,8 @@ export interface Api {
   agentChat(payload: AgentChatRequest): Promise<{ turnId: string }>;
   agentCancel(turnId: string): Promise<void>;
   onAgentEvent(cb: (event: AgentEvent) => void): () => void;
+  agentConversations(filter: { scope: "paper" | "library"; docId?: string }): Promise<ConversationSummary[]>;
+  agentConversation(id: string): Promise<Conversation | null>;
+  agentSaveConversation(conv: Conversation): Promise<void>;
+  agentDeleteConversation(id: string): Promise<void>;
 }

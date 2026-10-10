@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import type { LibraryDoc } from "../../../shared/types";
+import type { LibraryDoc, Conversation, ConversationSummary } from "../../../shared/types";
 import { Icon } from "./Icons";
 import { formatDate } from "../lib/format";
 import { getPdfjs } from "../lib/pdf";
 import type { LibraryApi } from "../state/useLibrary";
 import type { AppSettings } from "../state/settings";
+import { Markdown } from "../lib/markdown";
 
 function arxivId(url: string): string {
   const match = /arxiv\.org\/(?:abs|pdf)\/([^?#\s]+?)(?:v\d+)?(?:\.pdf)?$/i.exec(String(url || ""));
@@ -244,25 +245,6 @@ interface AiTurn {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
-const CITE_RE = /\[\[cite:([0-9a-fA-F]*)#(\d+)\]\]/g;
-
-function renderWithCitations(text: string, onCite: (docId: string, page: number) => void): JSX.Element[] {
-  const nodes: JSX.Element[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  CITE_RE.lastIndex = 0;
-  let k = 0;
-  while ((m = CITE_RE.exec(text)) !== null) {
-    if (m.index > last) { nodes.push(<span key={"t" + k++}>{text.slice(last, m.index)}</span>); }
-    const id = m[1];
-    const page = parseInt(m[2], 10);
-    nodes.push(<button key={"c" + k++} type="button" className="cite-chip" onClick={() => onCite(id, page)}>第 {page} 页</button>);
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) { nodes.push(<span key={"t" + k++}>{text.slice(last)}</span>); }
-  return nodes;
-}
-
 function AiPanel({ doc, settings, selection, onCite, onClearSelection }: {
   doc: LibraryDoc;
   settings: AppSettings;
@@ -274,12 +256,49 @@ function AiPanel({ doc, settings, selection, onCite, onClearSelection }: {
   const [input, setInput] = useState("");
   const [scope, setScope] = useState<"paper" | "library">("paper");
   const [sending, setSending] = useState(false);
+  const [convId, setConvId] = useState("");
+  const [convList, setConvList] = useState<ConversationSummary[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const turnRef = useRef("");
   const turnsRef = useRef<AiTurn[]>([]);
+  const convIdRef = useRef("");
   const scrollRef = useRef<HTMLDivElement>(null);
   turnsRef.current = turns;
+  convIdRef.current = convId;
 
-  useEffect(() => { setTurns([]); setInput(""); setSending(false); turnRef.current = ""; }, [doc.id]);
+  const targetDocId = scope === "paper" ? doc.id : undefined;
+
+  const persist = (messages: AiTurn[]): void => {
+    const id = convIdRef.current;
+    if (!id) { return; }
+    const firstUser = messages.find((m) => m.role === "user");
+    const clean = messages.filter((m) => m.text.trim() || m.error || (m.tools && m.tools.length > 0));
+    void window.api.agentSaveConversation({
+      id,
+      scope,
+      docId: targetDocId,
+      title: (firstUser?.text || "新对话").slice(0, 60),
+      updated_at: 0,
+      messages: clean.map((m) => ({ role: m.role, text: m.text, tools: m.tools, reasoning: m.reasoning, error: m.error, usage: m.usage }))
+    });
+  };
+
+  useEffect(() => {
+    setTurns([]); setInput(""); setSending(false); turnRef.current = ""; setConvId(""); convIdRef.current = ""; setShowHistory(false);
+    let cancelled = false;
+    void (async () => {
+      const list = await window.api.agentConversations({ scope, docId: scope === "paper" ? doc.id : undefined });
+      if (cancelled) { return; }
+      setConvList(list);
+      if (list[0]) {
+        const conv = await window.api.agentConversation(list[0].id);
+        if (!cancelled && conv) { setTurns(conv.messages as AiTurn[]); setConvId(conv.id); convIdRef.current = conv.id; }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.id, scope]);
+
   useEffect(() => { const el = scrollRef.current; if (el) { el.scrollTop = el.scrollHeight; } }, [turns]);
 
   useEffect(() => {
@@ -304,14 +323,24 @@ function AiPanel({ doc, settings, selection, onCite, onClearSelection }: {
         next[i] = cur;
         return next;
       });
-      if (e.type === "done" || e.type === "error") { setSending(false); }
+      if (e.type === "done" || e.type === "error") {
+        setSending(false);
+        persist(turnsRef.current);
+        void window.api.agentConversations({ scope, docId: targetDocId }).then(setConvList);
+      }
     });
     return off;
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, doc.id, convId]);
 
   const send = (preset?: string): void => {
     const q = (preset !== undefined ? preset : input).trim();
     if (!q || sending) { return; }
+    if (!convIdRef.current) {
+      const id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      convIdRef.current = id;
+      setConvId(id);
+    }
     setInput("");
     const history = turnsRef.current
       .filter((t) => t.text.trim())
@@ -335,13 +364,43 @@ function AiPanel({ doc, settings, selection, onCite, onClearSelection }: {
 
   const stop = (): void => { if (turnRef.current) { void window.api.agentCancel(turnRef.current); } };
 
+  const newConv = (): void => { setTurns([]); setConvId(""); convIdRef.current = ""; setShowHistory(false); };
+  const openConv = async (id: string): Promise<void> => {
+    const conv = await window.api.agentConversation(id);
+    if (conv) { setTurns(conv.messages as AiTurn[]); setConvId(conv.id); convIdRef.current = conv.id; }
+    setShowHistory(false);
+  };
+  const delConv = async (id: string): Promise<void> => {
+    await window.api.agentDeleteConversation(id);
+    setConvList(await window.api.agentConversations({ scope, docId: targetDocId }));
+    if (id === convIdRef.current) { newConv(); }
+  };
+
   return (
     <div className="ai-panel">
       <div className="ai-head">
         <span className="ai-badge"><Icon name="sparkle" small /></span>
         <div className="ai-scope-tabs">
-          <button type="button" className={scope === "paper" ? "active" : ""} onClick={() => setScope("paper")}>当前文章</button>
-          <button type="button" className={scope === "library" ? "active" : ""} onClick={() => setScope("library")}>全库</button>
+          <button type="button" className={scope === "paper" ? "active" : ""} onClick={() => { setScope("paper"); }}>当前文章</button>
+          <button type="button" className={scope === "library" ? "active" : ""} onClick={() => { setScope("library"); }}>全库</button>
+        </div>
+        <span className="od-fill" />
+        <button type="button" className="icon-btn" title="新对话" onClick={newConv}><Icon name="plus" small /></button>
+        <div className="ai-hist-wrap">
+          <button type="button" className="icon-btn" title="历史对话" onClick={() => setShowHistory((v) => !v)}><Icon name="history" small /></button>
+          {showHistory && (
+            <div className="ai-hist-pop">
+              {convList.length === 0 ? <div className="ai-hist-empty">暂无历史</div> : convList.map((c) => (
+                <div key={c.id} className={"ai-hist-item" + (c.id === convId ? " active" : "")}>
+                  <button type="button" className="ai-hist-open" onClick={() => { void openConv(c.id); }}>
+                    <span className="ai-hist-title od-truncate">{c.title}</span>
+                    <span className="ai-hist-time">{new Date(c.updated_at * 1000).toLocaleString()}</span>
+                  </button>
+                  <button type="button" className="icon-btn" title="删除" onClick={() => { void delConv(c.id); }}><Icon name="trash" small /></button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       <div className="ai-scroll" ref={scrollRef}>
@@ -374,7 +433,7 @@ function AiPanel({ doc, settings, selection, onCite, onClearSelection }: {
                         ))}
                       </details>
                     )}
-                    <div className="msg-content ai-md">{renderWithCitations(t.text, onCite)}</div>
+                    <div className="msg-content ai-md"><Markdown text={t.text} onCite={onCite} /></div>
                     {t.error ? <div className="ai-error">{t.error}</div> : null}
                     {t.streaming && !t.text ? <span className="typing"><i /><i /><i /></span> : null}
                     {t.usage ? <div className="ai-usage">tokens: {t.usage.prompt_tokens}+{t.usage.completion_tokens}</div> : null}

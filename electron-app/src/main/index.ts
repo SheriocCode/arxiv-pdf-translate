@@ -8,6 +8,7 @@ import * as library from "./library";
 import * as paths from "./paths";
 import { EngineManager, clearTmpJobs, type PublicJob, type TransParams } from "./engine";
 import { AgentService, type AgentChatRequest } from "./agent/agent";
+import * as conversations from "./agent/conversations";
 
 const engine = new EngineManager();
 const agent = new AgentService();
@@ -245,6 +246,10 @@ function registerIpc(): void {
 
   ipcMain.handle("agent:chat", (_event, payload: AgentChatRequest) => agent.run(payload));
   ipcMain.handle("agent:cancel", (_event, turnId: string) => agent.cancel(turnId));
+  ipcMain.handle("agent:conversations", (_event, filter: { scope: "paper" | "library"; docId?: string }) => conversations.list(filter));
+  ipcMain.handle("agent:conversation", (_event, id: string) => conversations.get(id));
+  ipcMain.handle("agent:conversationSave", (_event, conv) => conversations.save(conv));
+  ipcMain.handle("agent:conversationDelete", (_event, id: string) => conversations.remove(id));
 
   ipcMain.handle("storage:list", () => library.listTranslations());
   ipcMain.handle("library:result", (_event, id: string, cacheKey: string, variant?: string) => storage.readTranslation(id, cacheKey, variant));
