@@ -81,6 +81,25 @@ export interface BlockEvent {
   dst: string;
 }
 
+export interface AgentChatRequest {
+  scope: "paper" | "library";
+  docId?: string;
+  selection?: { text: string; page: number };
+  message: string;
+  history?: { role: "user" | "assistant"; content: string }[];
+}
+
+export interface AgentEvent {
+  turnId: string;
+  type: "delta" | "reasoning" | "tool_call" | "tool_result" | "usage" | "done" | "error";
+  text?: string;
+  name?: string;
+  args?: string;
+  content?: string;
+  error?: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
 export interface StorageEntry {
   id: string;
   name: string;
@@ -209,4 +228,7 @@ export interface Api {
   onJobUpdate(cb: (job: JobSummary) => void): () => void;
   onJobPartial(cb: (info: { id: string; done_pages: number; total_pages: number }) => void): () => void;
   onJobBlocks(cb: (info: { id: string; blocks: BlockEvent[] }) => void): () => void;
+  agentChat(payload: AgentChatRequest): Promise<{ turnId: string }>;
+  agentCancel(turnId: string): Promise<void>;
+  onAgentEvent(cb: (event: AgentEvent) => void): () => void;
 }

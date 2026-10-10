@@ -1126,3 +1126,27 @@ body.col-resizing { cursor: col-resize; -webkit-user-select: none; user-select: 
 /* stacking: modals above the in-app PDF reader */
 .reader-overlay { z-index: 10; }
 .modal-root { z-index: 200; }
+
+/* ---- AI agent ---- */
+.reader-overlay .sel-ask {
+  position: absolute; transform: translate(-50%, calc(-100% - 6px)); z-index: 60;
+  display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px;
+  background: var(--accent-strong); color: #fff; border: 0; border-radius: 999px;
+  box-shadow: var(--shadow); cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.reader-overlay .sel-ask:hover { background: var(--accent-strong-hover); }
+.ai-scope-tabs { display: inline-flex; gap: 4px; margin-left: 8px; }
+.ai-scope-tabs button { height: 24px; padding: 0 10px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 12px; border: 0; cursor: pointer; }
+.ai-scope-tabs button.active { background: var(--accent); color: #fff; }
+.cite-chip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; margin: 0 2px; border-radius: 999px; background: rgba(16,163,127,.16); color: var(--accent); font-size: 11px; cursor: pointer; border: 0; vertical-align: baseline; }
+.cite-chip:hover { background: rgba(16,163,127,.3); }
+.ai-md { white-space: pre-wrap; word-break: break-word; }
+.ai-tools { margin: 4px 0; font-size: 12px; color: var(--muted); }
+.ai-tools summary { cursor: pointer; color: var(--faint); }
+.ai-tool { display: flex; gap: 6px; padding: 2px 0; }
+.ai-tool-name { color: var(--accent); flex: none; }
+.ai-tool-args { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-error { margin-top: 6px; color: #f0857b; font-size: 12px; }
+.ai-usage { margin-top: 4px; color: var(--faint); font-size: 11px; }
+.ai-selection { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 5px 8px; background: var(--surface-2); border-radius: var(--radius-sm); color: var(--muted); font-size: 12px; }
+.ai-selection > span { flex: 1; min-width: 0; }

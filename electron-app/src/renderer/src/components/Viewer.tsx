@@ -7,6 +7,7 @@ import { LANGS } from "../lib/langs";
 export interface ViewerHandle {
   openSource(payload: { bytes: Uint8Array; name: string; sourceUrl?: string; docId?: string }, auto?: boolean): Promise<void>;
   loadTranslation(bytes: Uint8Array, docId?: string, cacheKey?: string): Promise<void>;
+  goToPage(page: number): void;
   reset(): void;
 }
 
@@ -26,10 +27,11 @@ interface Props {
   translations: TranslationRef[];
   activeKey: string;
   onSelectTranslation: (key: string) => void;
+  onAskSelection?: (text: string, page: number) => void;
 }
 
 const Viewer = forwardRef<ViewerHandle, Props>(function Viewer(
-  { config, onStatus, onClose, translations, activeKey, onSelectTranslation }, ref
+  { config, onStatus, onClose, translations, activeKey, onSelectTranslation, onAskSelection }, ref
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<ViewerEngine | null>(null);
@@ -48,6 +50,8 @@ const Viewer = forwardRef<ViewerHandle, Props>(function Viewer(
   const [themeOpen, setThemeOpen] = useState(false);
   const [themePos, setThemePos] = useState<{ left: number; top: number } | null>(null);
   const themeRef = useRef<HTMLDivElement>(null);
+  const [selPop, setSelPop] = useState<{ x: number; y: number; text: string; page: number } | null>(null);
+  const statusRef = useRef<ViewerStatus | null>(null);
   const [citation, setCitation] = useState<{ page: number; x: number; y: number; anchor: number } | null>(null);
   const showTimer = useRef(0);
   const hideTimer = useRef(0);
@@ -70,7 +74,7 @@ const Viewer = forwardRef<ViewerHandle, Props>(function Viewer(
 
   useEffect(() => {
     if (!hostRef.current) { return; }
-    const engine = new ViewerEngine(hostRef.current, (s) => { setStatus(s); onStatus(s); });
+    const engine = new ViewerEngine(hostRef.current, (s) => { statusRef.current = s; setStatus(s); onStatus(s); });
     engineRef.current = engine;
     return () => { engine.reset(); engineRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,6 +125,29 @@ const Viewer = forwardRef<ViewerHandle, Props>(function Viewer(
       document.removeEventListener("mousedown", onDown);
     };
   }, [scheduleHide]);
+
+  useEffect(() => {
+    function onUp(): void {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.toString().trim()) { setSelPop(null); return; }
+      const node = sel.anchorNode;
+      const el = node ? (node.nodeType === 1 ? (node as Element) : node.parentElement) : null;
+      if (!el || !el.closest || !el.closest(".text-layer")) { setSelPop(null); return; }
+      const stage = stageRef.current;
+      if (!stage) { return; }
+      const sr = stage.getBoundingClientRect();
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      setSelPop({ x: rect.left - sr.left + rect.width / 2, y: rect.top - sr.top, text: sel.toString().trim(), page: statusRef.current?.displayPage || 1 });
+    }
+    function onDown(e: MouseEvent): void {
+      const t = e.target as Element | null;
+      if (t && t.closest && t.closest(".sel-ask")) { return; }
+      setSelPop(null);
+    }
+    document.addEventListener("mouseup", onUp);
+    document.addEventListener("mousedown", onDown);
+    return () => { document.removeEventListener("mouseup", onUp); document.removeEventListener("mousedown", onDown); };
+  }, []);
 
   useEffect(() => {
     const canvas = citationCanvasRef.current;
@@ -211,6 +238,7 @@ const Viewer = forwardRef<ViewerHandle, Props>(function Viewer(
       await engine.loadTranslation(bytes);
       if (docId && cacheKey) { await engine.loadBlocks(docId, cacheKey); }
     },
+    goToPage: (page: number) => engineRef.current?.goToNumberedPage(page),
     reset: () => engineRef.current?.reset()
   }), []);
 
@@ -433,6 +461,16 @@ const Viewer = forwardRef<ViewerHandle, Props>(function Viewer(
         )}
         <div className="viewer-stage" ref={stageRef}>
           <div ref={hostRef} />
+          {selPop && (
+            <button
+              type="button"
+              className="sel-ask"
+              style={{ left: selPop.x, top: selPop.y }}
+              onClick={() => { onAskSelection?.(selPop.text, selPop.page); setSelPop(null); window.getSelection()?.removeAllRanges(); }}
+            >
+              <Icon name="sparkle" small /> 问 AI
+            </button>
+          )}
           {citation && (
             <div
               className="citation-pop"

@@ -51,9 +51,13 @@ const api = {
   windowIsMaximized: () => ipcRenderer.invoke("window:isMaximized"),
   onWindowMaximized: (cb: (value: boolean) => void) => subscribe("window:maximized", cb as (p: unknown) => void),
 
+  agentChat: (payload: unknown) => ipcRenderer.invoke("agent:chat", payload),
+  agentCancel: (turnId: string) => ipcRenderer.invoke("agent:cancel", turnId),
+
   onJobUpdate: (cb: (payload: unknown) => void) => subscribe("job:update", cb),
   onJobPartial: (cb: (payload: unknown) => void) => subscribe("job:partial", cb),
-  onJobBlocks: (cb: (payload: unknown) => void) => subscribe("job:blocks", cb)
+  onJobBlocks: (cb: (payload: unknown) => void) => subscribe("job:blocks", cb),
+  onAgentEvent: (cb: (payload: unknown) => void) => subscribe("agent:event", cb)
 };
 
 contextBridge.exposeInMainWorld("api", api);

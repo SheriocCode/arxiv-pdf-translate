@@ -27,6 +27,7 @@ export default function App(): JSX.Element {
   const [activeTab, setActiveTab] = useState<"library" | "doc">("library");
   const [docs, setDocs] = useState<OpenDoc[]>([]);
   const [activeDocId, setActiveDocId] = useState("");
+  const [aiSelection, setAiSelection] = useState<{ text: string; page: number } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(true);
@@ -95,6 +96,7 @@ export default function App(): JSX.Element {
   const openDoc = useCallback((doc: { id: string; title: string; read: boolean; translations?: { cacheKey: string }[] }) => {
     if (!doc) { return; }
     if (!doc.read) { void lib.update(doc.id, { read: true }); }
+    lib.select(doc.id);
     const key = (doc.translations && doc.translations[0]?.cacheKey) || "";
     const existing = docs.find((d) => d.id === doc.id);
     const entry: OpenDoc = existing ? { ...existing } : { id: doc.id, name: doc.title || "文档", activeKey: key };
@@ -132,6 +134,24 @@ export default function App(): JSX.Element {
     const tb = await window.api.readTranslation(activeDocId, key, "mono");
     if (tb && tb.length) { await viewerRef.current?.loadTranslation(new Uint8Array(tb), activeDocId, key); }
   }, [activeDocId]);
+
+  const askSelection = useCallback((text: string, page: number) => {
+    if (!activeDocId) { return; }
+    lib.select(activeDocId);
+    lib.setTab("ai");
+    setDetailOpen(true);
+    setAiSelection({ text, page });
+  }, [activeDocId, lib]);
+
+  const citeJump = useCallback((docId: string, page: number) => {
+    const target = docId || activeDocId;
+    if (!target) { return; }
+    if (target === activeDocId) { viewerRef.current?.goToPage(page); return; }
+    const doc = lib.documents.find((d) => d.id === target);
+    if (!doc) { return; }
+    openDoc(doc);
+    setTimeout(() => viewerRef.current?.goToPage(page), 800);
+  }, [activeDocId, lib, openDoc]);
 
   const registeredKeys = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -258,7 +278,14 @@ export default function App(): JSX.Element {
                 showUnread={settings.showUnread}
                 onOpenDoc={openDocById}
               />
-              <DetailPanel lib={lib} onOpen={openDoc} settings={settings} />
+              <DetailPanel
+                lib={lib}
+                onOpen={openDoc}
+                settings={settings}
+                aiSelection={aiSelection}
+                onCite={citeJump}
+                onClearSelection={() => setAiSelection(null)}
+              />
               {lib.section === "logs" && <LogsView logKey={logCat} logStatus={logStatus} onClose={() => lib.setSection("collections")} />}
               <div className="reader-overlay" hidden={activeTab !== "doc"}>
                 <Viewer
@@ -269,6 +296,7 @@ export default function App(): JSX.Element {
                   translations={translations}
                   activeKey={activeKey}
                   onSelectTranslation={selectTranslation}
+                  onAskSelection={askSelection}
                 />
                 {activeTab === "doc" && !hasSource && <div className="maybe-empty" />}
               </div>

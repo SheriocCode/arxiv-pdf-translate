@@ -7,8 +7,10 @@ import * as storage from "./storage";
 import * as library from "./library";
 import * as paths from "./paths";
 import { EngineManager, clearTmpJobs, type PublicJob, type TransParams } from "./engine";
+import { AgentService, type AgentChatRequest } from "./agent/agent";
 
 const engine = new EngineManager();
+const agent = new AgentService();
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -106,6 +108,7 @@ function send(channel: string, payload: unknown): void {
 engine.on("update", (job: PublicJob) => send("job:update", job));
 engine.on("partial", (id: string, info: unknown) => send("job:partial", { id, ...(info as object) }));
 engine.on("blocks", (id: string, blocks: unknown) => send("job:blocks", { id, blocks }));
+agent.on("event", (event: unknown) => send("agent:event", event));
 
 function arxivToPdf(url: string): string {
   const match = /^https?:\/\/(?:www\.|export\.)?arxiv\.org\/abs\/([^?#\s]+)/i.exec(url);
@@ -239,6 +242,9 @@ function registerIpc(): void {
     fs.writeFileSync(filePath, bytes);
     return filePath;
   });
+
+  ipcMain.handle("agent:chat", (_event, payload: AgentChatRequest) => agent.run(payload));
+  ipcMain.handle("agent:cancel", (_event, turnId: string) => agent.cancel(turnId));
 
   ipcMain.handle("storage:list", () => library.listTranslations());
   ipcMain.handle("library:result", (_event, id: string, cacheKey: string, variant?: string) => storage.readTranslation(id, cacheKey, variant));

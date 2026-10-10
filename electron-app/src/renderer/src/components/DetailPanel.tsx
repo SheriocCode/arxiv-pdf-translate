@@ -26,11 +26,17 @@ function citation(doc: LibraryDoc, withDoi: boolean): string {
 export default function DetailPanel({
   lib,
   onOpen,
-  settings
+  settings,
+  aiSelection,
+  onCite,
+  onClearSelection
 }: {
   lib: LibraryApi;
   onOpen: (doc: LibraryDoc) => void;
   settings: AppSettings;
+  aiSelection?: { text: string; page: number } | null;
+  onCite?: (docId: string, page: number) => void;
+  onClearSelection?: () => void;
 }): JSX.Element {
   const doc = lib.selected;
 
@@ -54,7 +60,7 @@ export default function DetailPanel({
               : <InfoDisplay lib={lib} doc={doc} onOpenView={openDoc} citeDoi={settings.citeDoi} />)}
             {lib.tab === "notes" && <NotesPanel lib={lib} doc={doc} />}
             {lib.tab === "tags" && <TagsPanel lib={lib} doc={doc} />}
-            {lib.tab === "ai" && settings.aiEnabled && <AiPanel doc={doc} settings={settings} />}
+            {lib.tab === "ai" && settings.aiEnabled && <AiPanel doc={doc} settings={settings} selection={aiSelection} onCite={onCite || (() => {})} onClearSelection={onClearSelection || (() => {})} />}
           </div>
         )}
       </div>
@@ -227,81 +233,166 @@ function TagsPanel({ lib, doc }: { lib: LibraryApi; doc: LibraryDoc }): JSX.Elem
   );
 }
 
-interface AiMsg { role: "user" | "assistant"; text?: string; html?: string }
-
-function composeReply(doc: LibraryDoc, q: string): string {
-  const esc = (s: string) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
-  if (q.includes("方法")) {
-    return "<strong>主要方法</strong><ul><li>论文：" + esc(doc.title) + "</li><li>核心思路：" + esc(doc.summary || doc.abstract) + "</li><li>关键组件与训练策略详见正文第 3–4 节，可对照 PDF 附件阅读。</li></ul>";
-  }
-  if (q.includes("局限")) {
-    return "<strong>潜在局限（基于摘要的初步判断）</strong><ul><li>实验结论可能依赖特定数据集与规模设定，跨域泛化仍需验证。</li><li>计算与存储开销较大，落地时需权衡成本。</li><li>建议结合原文的局限性讨论章节与后续工作综合判断。</li></ul>";
-  }
-  return "<strong>核心贡献</strong><ul><li>" + esc(doc.summary || doc.abstract || "（暂无摘要，可在信息页补充）") + "</li><li>发表于 " + esc(doc.venue || "—") + " " + esc(doc.year || "") + "，作者：" + esc(doc.authors || "—") + "。</li></ul>";
+interface AiToolTrace { name: string; args?: string; content?: string }
+interface AiTurn {
+  role: "user" | "assistant";
+  text: string;
+  tools?: AiToolTrace[];
+  reasoning?: string;
+  error?: string;
+  streaming?: boolean;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
-function AiPanel({ doc, settings }: { doc: LibraryDoc; settings: AppSettings }): JSX.Element {
-  const [messages, setMessages] = useState<AiMsg[]>([]);
-  const [input, setInput] = useState("");
-  const [typing, setTyping] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+const CITE_RE = /\[\[cite:([0-9a-fA-F]*)#(\d+)\]\]/g;
 
-  useEffect(() => { setMessages([]); setInput(""); setTyping(false); }, [doc.id]);
-  useEffect(() => { const el = scrollRef.current; if (el) { el.scrollTop = el.scrollHeight; } }, [messages, typing]);
+function renderWithCitations(text: string, onCite: (docId: string, page: number) => void): JSX.Element[] {
+  const nodes: JSX.Element[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  CITE_RE.lastIndex = 0;
+  let k = 0;
+  while ((m = CITE_RE.exec(text)) !== null) {
+    if (m.index > last) { nodes.push(<span key={"t" + k++}>{text.slice(last, m.index)}</span>); }
+    const id = m[1];
+    const page = parseInt(m[2], 10);
+    nodes.push(<button key={"c" + k++} type="button" className="cite-chip" onClick={() => onCite(id, page)}>第 {page} 页</button>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) { nodes.push(<span key={"t" + k++}>{text.slice(last)}</span>); }
+  return nodes;
+}
+
+function AiPanel({ doc, settings, selection, onCite, onClearSelection }: {
+  doc: LibraryDoc;
+  settings: AppSettings;
+  selection?: { text: string; page: number } | null;
+  onCite: (docId: string, page: number) => void;
+  onClearSelection: () => void;
+}): JSX.Element {
+  const [turns, setTurns] = useState<AiTurn[]>([]);
+  const [input, setInput] = useState("");
+  const [scope, setScope] = useState<"paper" | "library">("paper");
+  const [sending, setSending] = useState(false);
+  const turnRef = useRef("");
+  const turnsRef = useRef<AiTurn[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  turnsRef.current = turns;
+
+  useEffect(() => { setTurns([]); setInput(""); setSending(false); turnRef.current = ""; }, [doc.id]);
+  useEffect(() => { const el = scrollRef.current; if (el) { el.scrollTop = el.scrollHeight; } }, [turns]);
+
+  useEffect(() => {
+    const off = window.api.onAgentEvent((e) => {
+      if (e.turnId !== turnRef.current) { return; }
+      setTurns((prev) => {
+        if (prev.length === 0) { return prev; }
+        const next = prev.slice();
+        const i = next.length - 1;
+        const cur: AiTurn = { ...next[i] };
+        if (e.type === "delta" && e.text) { cur.text += e.text; }
+        else if (e.type === "reasoning" && e.text) { cur.reasoning = (cur.reasoning || "") + e.text; }
+        else if (e.type === "tool_call") { cur.tools = [...(cur.tools || []), { name: e.name || "", args: e.args }]; }
+        else if (e.type === "tool_result") {
+          const tools = (cur.tools || []).slice();
+          for (let j = tools.length - 1; j >= 0; j--) { if (tools[j].name === e.name) { tools[j] = { ...tools[j], content: e.content }; break; } }
+          cur.tools = tools;
+        }
+        else if (e.type === "usage") { cur.usage = e.usage; }
+        else if (e.type === "error") { cur.error = e.error || "出错了"; cur.streaming = false; }
+        else if (e.type === "done") { cur.streaming = false; }
+        next[i] = cur;
+        return next;
+      });
+      if (e.type === "done" || e.type === "error") { setSending(false); }
+    });
+    return off;
+  }, []);
 
   const send = (preset?: string): void => {
     const q = (preset !== undefined ? preset : input).trim();
-    if (!q) { return; }
+    if (!q || sending) { return; }
     setInput("");
-    setMessages((m) => [...m, { role: "user", text: q }]);
-    setTyping(true);
-    setTimeout(() => {
-      setTyping(false);
-      setMessages((m) => [...m, { role: "assistant", html: composeReply(doc, q) }]);
-    }, 900);
+    const history = turnsRef.current
+      .filter((t) => t.text.trim())
+      .map((t) => ({ role: t.role, content: t.text }));
+    setTurns((prev) => [...prev, { role: "user", text: q }, { role: "assistant", text: "", streaming: true }]);
+    setSending(true);
+    const sel = selection ? selection : undefined;
+    void window.api.agentChat({ scope, docId: doc.id, selection: sel, message: q, history })
+      .then(({ turnId }) => { turnRef.current = turnId; })
+      .catch((err) => {
+        setSending(false);
+        setTurns((prev) => {
+          const next = prev.slice();
+          const i = next.length - 1;
+          next[i] = { ...next[i], streaming: false, error: String(err?.message || err) };
+          return next;
+        });
+      });
+    onClearSelection();
   };
+
+  const stop = (): void => { if (turnRef.current) { void window.api.agentCancel(turnRef.current); } };
 
   return (
     <div className="ai-panel">
       <div className="ai-head">
         <span className="ai-badge"><Icon name="sparkle" small /></span>
-        <span>AI 助手</span>
-        <span className="ai-scope od-truncate">上下文：{doc.title}</span>
+        <div className="ai-scope-tabs">
+          <button type="button" className={scope === "paper" ? "active" : ""} onClick={() => setScope("paper")}>当前文章</button>
+          <button type="button" className={scope === "library" ? "active" : ""} onClick={() => setScope("library")}>全库</button>
+        </div>
       </div>
       <div className="ai-scroll" ref={scrollRef}>
-        {messages.length === 0 ? (
+        {turns.length === 0 ? (
           <div className="ai-intro">
             <div className="ai-mark"><Icon name="sparkle" /></div>
-            <h3>用 AI 助手探索这篇文献</h3>
-            <p>基于《{doc.title}》提问，快速获得摘要、方法与局限分析。</p>
+            <h3>{scope === "paper" ? "就这篇文献提问" : "跨文库提问"}</h3>
+            <p>{scope === "paper" ? `基于《${doc.title}》检索并作答，回答带可点击引用。` : "在整本文库中检索相关段落并综合作答。"}</p>
             <div className="ai-suggest">
               <button onClick={() => send("总结核心贡献")}>总结核心贡献</button>
               <button onClick={() => send("解释主要方法")}>解释主要方法</button>
-              <button onClick={() => send("分析局限")}>分析局限</button>
+              <button onClick={() => send("分析局限性")}>分析局限性</button>
             </div>
           </div>
         ) : (
-          <>
-            {messages.map((m, i) => (
-              <div key={i} className={"msg " + (m.role === "user" ? "msg-user" : "msg-assistant")}>
-                <div className="msg-avatar">{m.role === "user" ? "我" : <Icon name="sparkle" small />}</div>
-                <div className="msg-body">
-                  <div className="msg-role">{m.role === "user" ? "我" : "AI 助手"}</div>
-                  {m.role === "user"
-                    ? <div className="msg-content">{m.text}</div>
-                    : <div className="msg-content" dangerouslySetInnerHTML={{ __html: m.html || "" }} />}
-                </div>
+          turns.map((t, i) => (
+            <div key={i} className={"msg " + (t.role === "user" ? "msg-user" : "msg-assistant")}>
+              <div className="msg-avatar">{t.role === "user" ? "我" : <Icon name="sparkle" small />}</div>
+              <div className="msg-body">
+                <div className="msg-role">{t.role === "user" ? "我" : "AI 助手"}</div>
+                {t.role === "user" ? (
+                  <div className="msg-content">{t.text}</div>
+                ) : (
+                  <>
+                    {t.tools && t.tools.length > 0 && (
+                      <details className="ai-tools">
+                        <summary>工具调用（{t.tools.length}）</summary>
+                        {t.tools.map((tool, j) => (
+                          <div key={j} className="ai-tool"><span className="ai-tool-name">{tool.name}</span>{tool.args ? <span className="ai-tool-args">{tool.args}</span> : null}</div>
+                        ))}
+                      </details>
+                    )}
+                    <div className="msg-content ai-md">{renderWithCitations(t.text, onCite)}</div>
+                    {t.error ? <div className="ai-error">{t.error}</div> : null}
+                    {t.streaming && !t.text ? <span className="typing"><i /><i /><i /></span> : null}
+                    {t.usage ? <div className="ai-usage">tokens: {t.usage.prompt_tokens}+{t.usage.completion_tokens}</div> : null}
+                  </>
+                )}
               </div>
-            ))}
-            {typing && <div className="msg msg-assistant"><div className="msg-avatar"><Icon name="sparkle" small /></div><div className="msg-body"><div className="msg-content"><span className="typing"><i /><i /><i /></span></div></div></div>}
-          </>
+            </div>
+          ))
         )}
       </div>
       <div className="ai-composer">
-        <form
-          className="composer-box"
-          onSubmit={(e) => { e.preventDefault(); send(); }}
-        >
+        {selection && selection.text.trim() ? (
+          <div className="ai-selection">
+            <span className="od-truncate">已选文本（第 {selection.page} 页）：{selection.text.trim().slice(0, 120)}</span>
+            <button type="button" className="icon-btn" title="移除" onClick={onClearSelection}><Icon name="x" small /></button>
+          </div>
+        ) : null}
+        <form className="composer-box" onSubmit={(e) => { e.preventDefault(); send(); }}>
           <textarea
             placeholder="随心输入"
             rows={1}
@@ -310,9 +401,10 @@ function AiPanel({ doc, settings }: { doc: LibraryDoc; settings: AppSettings }):
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           />
           <div className="composer-row">
-            <button type="button" className="icon-btn" aria-label="添加附件"><Icon name="plus" small /></button>
             <span className="od-fill" />
-            <button type="submit" className="send-btn" aria-label="发送" disabled={!input.trim()}><Icon name="arrow-up" small /></button>
+            {sending
+              ? <button type="button" className="send-btn" title="停止" onClick={stop}><Icon name="x" small /></button>
+              : <button type="submit" className="send-btn" aria-label="发送" disabled={!input.trim()}><Icon name="arrow-up" small /></button>}
           </div>
         </form>
       </div>
