@@ -1,0 +1,51 @@
+{
+  "name": "arxiv-pdf-translate",
+  "productName": "Arxiv PDF Translate",
+  "version": "0.5.1",
+  "description": "Translate arXiv and local PDFs on your machine with the bundled engine and read the bilingual PDF in a built-in viewer.",
+  "main": "./out/main/index.js",
+  "author": "SheriocCode",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "dist": "electron-vite build && electron-builder"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.3.7"
+  },
+  "build": {
+    "appId": "com.sherioccode.arxiv-pdf-translate",
+    "productName": "Arxiv PDF Translate",
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "engine",
+        "to": "engine"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.ico"
+    }
+  }
+}
